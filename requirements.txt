@@ -1,0 +1,4 @@
+# Fuso America/Sao_Paulo em Windows: zoneinfo nao inclui banco IANA no Python.
+# Nao e necessario acesso a internet depois da instalacao local.
+tzdata==2026.6
+mcp-juridico-brasil @ git+https://github.com/DeHor-Labs/mcp-juridico-brasil.git@4dd19d146b2a3efe6fd3d0c7fcd2ceaefe40cfc1

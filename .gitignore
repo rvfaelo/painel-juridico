@@ -1,0 +1,15 @@
+.public-datajud-key.txt
+companion/host.cmd
+companion/br.com.pauta.local.json
+docs/helper-installation.json
+docs/ui-test/
+node_modules/
+*.zip
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+data/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm

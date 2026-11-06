@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Painel H.B · Painel jurídico</title><link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <button class="skip-link" id="skip-to-content" type="button">Pular para o conteúdo principal</button>
+  <aside class="sidebar">
+    <a class="brand" href="#home"><span class="brand-mark">HB</span><span>Painel H.B<small>Seu espaço jurídico</small></span></a>
+    <p class="nav-label">ESCRITÓRIO</p>
+    <nav aria-label="Navegação principal" id="navigation"></nav>
+    <div class="sidebar-bottom">
+      <p class="nav-label">FERRAMENTAS</p>
+      <button id="privacy" class="nav-item" aria-pressed="false"></button>
+      <button id="backup" class="nav-item"></button>
+      <a href="#sources" class="nav-item" id="settings-link"></a>
+      <button id="changelog" type="button" data-action="changelog" class="release-tile" aria-label="Ver novidades e histórico de versões">
+        <span class="release-kicker">NOVIDADES <span id="release-version"></span></span>
+        <strong id="release-title" class="release-title"></strong>
+        <span class="release-foot">Ver changelog →</span>
+      </button>
+      <div class="local-note"><span class="status-dot"></span> Dados neste computador<small>Versão 0.5.9</small></div>
+    </div>
+  </aside>
+  <main>
+    <header class="page-header"><div><p class="eyebrow" id="eyebrow"></p><h1 id="page-title"></h1></div><div class="header-actions"><span id="today"></span><button id="update-all" class="button secondary"></button><button id="new-record" class="button primary"></button></div></header>
+    <section id="job-progress" aria-live="polite"></section>
+    <div id="content" tabindex="-1"></div>
+    <footer>Seu trabalho organizado, com a origem de cada informação. <a href="#sources">Ver alcance das fontes</a></footer>
+  </main>
+  <dialog id="editor" aria-labelledby="dialog-title"><div class="dialog-heading"><h2 id="dialog-title"></h2><button type="button" id="close-dialog" class="icon-button" aria-label="Fechar">×</button></div><div id="dialog-body"></div></dialog>
+  <div id="toast" role="status" hidden></div>
+  <script src="app.bundle.js" defer></script>
+  <script>
+    // Se o bundle não carregar, explique a causa em vez de deixar a tela vazia.
+    window.addEventListener('load',()=>setTimeout(()=>{
+      if(globalThis.__PAUTA_BOOTED__)return;
+      const content=document.querySelector('#content');
+      if(content)content.innerHTML='<div class="notice"><strong>Não foi possível carregar o aplicativo.</strong><p>Confira se <code>app.bundle.js</code> está na mesma pasta de <code>dashboard.html</code>. Se você alterou os módulos-fonte, gere o bundle com <code>npm run build</code>.</p></div>';
+    },1500));
+  </script>
+</body>
+</html>
