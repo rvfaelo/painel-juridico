@@ -1,4 +1,4 @@
-/* Painel H.B v0.5.11 · bundle gerado por tools/build-app.mjs. Edite os módulos-fonte, não este arquivo. */
+/* Painel H.B v0.6.0 · bundle gerado por tools/build-app.mjs. Edite os módulos-fonte, não este arquivo. */
 (() => {
   // panel-organization.js
   var settingsView = "Fontes";
@@ -84,7 +84,7 @@
   }
 
   // core.js
-  var VERSION = "0.5.11";
+  var VERSION = "0.6.0";
   function taskView(tasks2, query2 = "", filter2 = "open") {
     if (!["open", "done", "all"].includes(filter2)) throw Error("Filtro de tarefas inválido.");
     const fold4 = (v) => String(v ?? "").normalize("NFD").replace(new RegExp("\\p{M}", "gu"), "").toLocaleLowerCase("pt-BR");
@@ -1749,6 +1749,7 @@
 
   // changelog.js
   var CHANGELOG = Object.freeze([
+    { version: "0.6.0", date: "2026-11-06", title: "Atualizações assinadas pelo GitHub Releases", summary: "Amplia a Central com atualização gráfica, verificação de assinatura, backup e recuperação.", changes: ["Consulta versões estáveis no repositório configurado e mostra novidades sem instalar automaticamente.", "Verifica assinatura RSA do editor, SHA-256, inventário e caminhos antes de substituir arquivos do programa.", "Preserva origem do navegador e dados locais; exige confirmação de backup do IndexedDB e cria backup SQLite consistente.", "Prepara dependências alteradas em ambiente separado, registra etapas e permite recuperar o código anterior quando o esquema é compatível."] },
     { version: "0.5.11", date: "2026-11-06", title: "Mais espaço nos processos em atenção", summary: "Melhora a separação dos cards e o acesso à carteira na página inicial.", changes: ["Organiza os cards de processos em atenção em uma lista com espaçamento consistente.", "Move Ver todos os processos para o cabeçalho como botão secundário com seta e foco de teclado."] },
     { version: "0.5.10", date: "2026-11-06", title: "Publicações unificadas e tarefas por estado", summary: "Conclui a organização com uma lista de publicações e filtros de tarefas.", changes: ["Reúne publicações da carteira e do serviço sem duplicar a mesma comunicação, preservando conferência, teor e PDFs.", "Mostra tarefas em aberto por padrão e permite consultar concluídas ou todas, com busca e reabertura."] },
     { version: "0.5.9", date: "2026-11-06", title: "Prioridades e organização do escritório", summary: "Prioriza o trabalho diário e separa ajustes de diagnóstico, com backup de recuperação.", changes: ["Coloca compromissos do dia, tarefas e revisões antes dos indicadores financeiros no Início.", "Agrupa as vistas de Trabalho e organiza Ajustes em Fontes, Automação, Dados e Diagnóstico.", "Substitui a carteira repetida por um resumo e concentra novidades na central de Notificações."] },

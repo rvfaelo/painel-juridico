@@ -1,0 +1,58 @@
+name: Prepare signed Windows Release
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag existente, igual a v + versão do package.json'
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  validate-and-package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate tag and version
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          $version=(Get-Content package.json -Raw | ConvertFrom-Json).version
+          if($env:RELEASE_TAG -cne ('v'+$version)){throw 'Tag diferente da versão do pacote.'}
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - run: python -m pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -p "test_*.py"
+      - run: python tools/package.py
+      - run: python tools/smoke-release.py
+      - run: python tools/build-update.py
+      - name: Sign manifest using editor key
+        shell: powershell
+        env:
+          HB_UPDATE_RSA_XML: ${{ secrets.HB_UPDATE_RSA_XML }}
+        run: |
+          if(-not $env:HB_UPDATE_RSA_XML){throw 'Configure a chave do editor em HB_UPDATE_RSA_XML.'}
+          .\tools\sign-update.ps1 -Manifest update-manifest.json -Signature update-manifest.sig
+          .\updates\verify-signature.ps1 -Manifest update-manifest.json -Signature update-manifest.sig -Trust update-trust.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-windows-release
+          path: |
+            Painel-HB-v*-Windows.zip
+            update-manifest.json
+            update-manifest.sig
+          if-no-files-found: error
+  # Intencionalmente sem etapa de publicacao. O editor aprova a Release e envia
+  # os tres artefatos validados; executar o workflow nao publica nada sozinho.

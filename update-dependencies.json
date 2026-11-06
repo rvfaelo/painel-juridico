@@ -1,0 +1,12 @@
+{
+  "protocol": 1,
+  "data_schema": 3,
+  "workspace_schema": 2,
+  "origin": "http://127.0.0.1:8766",
+  "python_min": [3, 12],
+  "python_max_exclusive": [3, 15],
+  "architecture": "win_amd64",
+  "packages": {"tzdata": "2026.6", "mcp-juridico-brasil": "0.1.0"},
+  "optional_packages": {"juscraper": "0.5.0"},
+  "node_min_major": 24
+}

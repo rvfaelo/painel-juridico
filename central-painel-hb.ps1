@@ -3,8 +3,9 @@
 param(
   [switch]$SelfTest,
   [string]$Screenshot,
-  [ValidateRange(0,2)][int]$ScreenshotTab = 0,
-  [switch]$TestInteractions
+  [ValidateRange(0,3)][int]$ScreenshotTab = 0,
+  [switch]$TestInteractions,
+  [switch]$UpdateSelfTest
 )
 
 $ErrorActionPreference = 'Stop'
@@ -22,7 +23,7 @@ $script:Actions = [ordered]@{
   removeAutoStart = 'REMOVER-INICIALIZACAO.cmd'
   update = 'ATUALIZAR-LOCAL.cmd'
 }
-$script:InteractionMode = [bool]$TestInteractions
+$script:InteractionMode = [bool]($TestInteractions -or $UpdateSelfTest)
 $script:InteractionLog = New-Object 'System.Collections.Generic.List[string]'
 $script:Buttons = @{}
 
@@ -313,6 +314,8 @@ $maint.Controls.Add($folderButton)
 [void](Add-Label $maint 'Acesse os arquivos e os manuais locais.' 440 226 380 32)
 [void](Add-Label $maint 'Backup: use Exportar backup protegido dentro do painel. A central não copia, altera ou restaura processos e dados por conta própria.' 25 310 795 70)
 
+. (Join-Path $script:Root 'updates\central-updates.ps1')
+
 $footer = New-Object System.Windows.Forms.Panel
 $footer.Dock = 'Bottom'
 $footer.Height = 41
@@ -358,7 +361,15 @@ $timer.Add_Tick({ Refresh-Status })
 $timer.Start()
 $form.Add_FormClosed({ $timer.Stop(); $timer.Dispose() })
 
-if ($TestInteractions) {
+if ($UpdateSelfTest) {
+  try {
+    if($tabs.TabPages.Count -ne 4 -or $updatePage.Text -ne 'Atualizações'){throw 'Aba de atualizacoes ausente.'}
+    foreach($action in @('check','history','install','restore','cancel')){Start-UpdateOperation $action}
+    if($script:UpdateProcess){throw 'Autoteste iniciou um processo.'}
+    if($script:InteractionLog.Count -ne 5){throw 'Eventos da aba incompletos.'}
+    @{ok=$true;updatesTab=$true;actionsTested=5;noNetwork=$true;noInstall=$true} | ConvertTo-Json -Compress
+  } finally {$form.Dispose()}
+} elseif ($TestInteractions) {
   $form.Show()
   [System.Windows.Forms.Application]::DoEvents()
   try {
