@@ -6,7 +6,7 @@ if not exist ".venv\Scripts\python.exe" (
   pause
   exit /b 1
 )
-".venv\Scripts\python.exe" -m pip install -r requirements-esaj.txt
+".venv\Scripts\python.exe" -m pip install --disable-pip-version-check --require-hashes -r requirements-esaj.hashes.lock
 if errorlevel 1 (
   echo Instalacao nao concluida. Verifique as mensagens acima.
   pause

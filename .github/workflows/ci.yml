@@ -27,6 +27,8 @@ jobs:
       - run: npx --yes eslint@10.14.0 .
       - run: pip install ruff==0.17.4
       - run: ruff check .
+      - name: Validar lock com hashes do e-SAJ
+        run: python -m pip install --dry-run --require-hashes -r requirements-esaj.hashes.lock
 
   ui:
     runs-on: windows-latest

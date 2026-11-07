@@ -56,7 +56,7 @@ usa o mesmo backup descrito acima.
   habilitado por padrão.
 - **TJSP e-SAJ:** conector opcional `juscraper==0.5.0`, instalações e graus
   separados; ainda não validado em processos reais. Instale apenas se necessário
-  executando `INSTALAR-ESAJ-OPCIONAL.cmd`.
+  executando `INSTALAR-ESAJ-OPCIONAL.cmd`, com verificação de hashes em `requirements-esaj.hashes.lock`.
 - **Jus.br/PDPJ:** indisponível nesta versão; nenhum token ou senha solicitado.
 - **STF:** mantenha a consulta oficial manual; não existe alias público
   DataJud confirmado para STF nesta integração.
