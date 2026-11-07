@@ -355,6 +355,167 @@
     };
   }
 
+  // views/boards.js
+  function createBoardViews(app) {
+    function agendadosPanel() {
+      const model = app.scheduledCases(app.state.cases, { owner: app.scheduledOwner, query: app.query, sort: app.scheduledSort, today: app.dateKey(), clientName: app.clientName });
+      const ordered = Object.values(model.groups).flat(), pageSize = 15, pages = Math.max(1, Math.ceil(ordered.length / pageSize));
+      app.scheduledPage = Math.max(1, Math.min(pages, app.scheduledPage));
+      const visibleIds = new Set(ordered.slice((app.scheduledPage - 1) * pageSize, app.scheduledPage * pageSize).map((c) => c.id));
+      const options = [["all", "Todos"], ...Object.entries(app.WORK_OWNERS)].map(([key, label2]) => `<button type="button" data-action="scheduled-owner" data-id="${key}" class="agendados-owner ${key === app.scheduledOwner ? "active" : ""}" aria-pressed="${key === app.scheduledOwner}">${app.esc(label2)} <span>${model.counts[key]}</span></button>`).join("");
+      const overview2 = `<div class="agendados-overview" aria-label="Resumo de revisões"><div><strong>${model.overview.overdue}</strong><span>Atrasadas</span></div><div><strong>${model.overview.today}</strong><span>Revisar hoje</span></div><div><strong>${model.overview.week}</strong><span>Próximos 7 dias</span></div><div><strong>${model.overview.pending}</strong><span>Pendências abertas</span></div></div>`;
+      const filters = `<div class="agendados-toolbar"><div class="agendados-owners" role="group" aria-label="Responsável pela próxima ação">${options}</div><div class="agendados-toolbar-right"><label class="field">Buscar processo ou providência<input class="search" data-filter="search" aria-label="Buscar nos agendados" placeholder="Cliente, CNJ, próximo passo…" value="${app.esc(app.query)}"></label><label class="field">Ordenar por<select data-scheduled-sort="true" aria-label="Ordenar agendados">${Object.entries(app.SCHEDULE_SORTS).map(([key, label2]) => `<option value="${key}" ${app.scheduledSort === key ? "selected" : ""}>${app.esc(label2)}</option>`).join("")}</select></label></div></div>`;
+      const groups = Object.entries(model.groups).map(([key, rows]) => [key, rows.filter((c) => visibleIds.has(c.id))]).filter(([, rows]) => rows.length).map(([key, rows]) => `<section class="agendados-group" aria-label="${app.esc(app.SCHEDULE_GROUPS[key])}"><div class="agendados-group-heading"><h3>${app.esc(app.SCHEDULE_GROUPS[key])}</h3><span>${rows.length}</span></div><div class="agendados-list">${rows.map((c) => {
+        const pending = (c.pendingItems || []).filter((item) => !item.done).length, viewedToday = c.reviewedAt && app.dateKey(new Date(c.reviewedAt)) === app.dateKey(), owner = c.workOwner || "me", status = c.workStatus || "todo";
+        return `<article class="agendados-row"><div class="agendados-case"><button class="cell-title private" data-action="detail" data-id="${app.esc(c.id)}">${app.esc(c.title)}</button><small class="private">${app.esc(app.clientName(c.clientId))} · ${app.esc(c.cnj ? app.formatCnj(c.cnj) : c.docketNumber || "Sem CNJ")}</small></div><div class="agendados-status">${app.tag(app.WORK_OWNERS[owner] || app.WORK_OWNERS.me, "")}${app.tag(app.WORK_STATUSES[status] || app.WORK_STATUSES.todo, status === "ready" ? "action" : status === "done" ? "success" : "")}</div><div class="agendados-next"><strong class="private">${app.esc(c.nextStep || "Próximo passo ainda não definido")}</strong><small>${app.esc(c.area || "Área não informada")} · ${app.esc(app.PROCESS_SYSTEMS[c.processSystem || ""] || "Sistema não informado")}</small>${pending ? `<span class="agendados-pending">${pending} pendência(s) aberta(s)</span>` : ""}</div><div class="agendados-review"><strong>${c.review ? app.date(c.review) : "Sem data"}</strong><small>${c.reviewedAt ? "Visto: " + app.timestamp(c.reviewedAt) : "Ainda não visto"}</small></div><div class="agendados-actions">${app.button("detail", "Abrir ficha", "secondary small", c.id)}${app.button("workflow-viewed", viewedToday ? "Visto hoje ✓" : "Marcar visto", "ghost small", c.id)}</div></article>`;
+      }).join("")}</div></section>`).join("");
+      const emptyMessage = app.state.cases.some((c) => !c.archived) ? '<div class="empty"><h2>Nenhum processo neste filtro</h2><p>Altere o responsável ou o termo pesquisado.</p></div>' : app.empty("Organize suas revisões", "Cadastre o primeiro processo. Depois registre o próximo passo, responsável e data de revisão.", "new-cases", "Cadastrar processo");
+      const paging = model.total ? `<div class="agendados-footer"><span>Mostrando ${(app.scheduledPage - 1) * pageSize + 1} a ${Math.min(app.scheduledPage * pageSize, model.total)} de ${model.total} processo(s)</span><div class="line-actions"><button class="button ghost small" data-action="scheduled-prev" ${app.scheduledPage <= 1 ? "disabled" : ""}>Anterior</button><span class="muted compact">${app.scheduledPage} de ${pages}</span><button class="button secondary small" data-action="scheduled-next" ${app.scheduledPage >= pages ? "disabled" : ""}>Próxima</button></div></div>` : "";
+      return '<p class="intro-note">As revisões e providências são planejadas manualmente. “Visto” é um controle interno e não representa ciência de intimação nem contagem automática de prazo judicial.</p>' + overview2 + app.panel(`Agendados <span class="pill">${model.total}</span>`, filters + (groups || emptyMessage) + paging);
+    }
+    function home() {
+      const today = app.dateKey(), due = [...app.state.appointments.filter((a) => a.when?.slice(0, 10) === today).map((a) => ({ title: a.title, sub: "Compromisso · " + a.when.slice(11, 16), action: "edit-appointments", id: a.id })), ...app.state.tasks.filter((t) => t.due && t.due <= today && t.stage !== "done").map((t) => ({ title: t.title, sub: "Tarefa · " + app.caseName(t.caseId), action: "edit-tasks", id: t.id })), ...app.state.cases.filter((c) => !c.archived && c.review && c.review <= today).map((c) => ({ title: c.title, sub: "Revisão agendada para " + app.date(c.review), action: "detail", id: c.id }))];
+      const attention = `<section class="attention"><div class="attention-heading"><div><p class="eyebrow">HOJE</p><h2>O que pede atenção</h2></div><span class="pill">${due.length} ponto(s) de atenção</span></div>${due.length ? due.slice(0, 5).map((d) => `<div class="attention-row"><span class="round-icon">${app.icon("arrow")}</span><div><p class="private">${app.esc(d.title)}</p><small class="private">${app.esc(d.sub)}</small></div>${app.button(d.action, "Abrir", "ghost small", d.id)}</div>`).join("") : '<div class="attention-row"><span class="round-icon">' + app.icon("check") + "</span><div><p>Nenhuma pendência para hoje</p><small>Revisões e tarefas cadastradas aparecem aqui.</small></div></div>"}</section>`;
+      const pending = app.pendingManualReviews(app.state);
+      const reviews = pending.length ? `<section class="attention" aria-label="Conferências pendentes"><div class="attention-heading"><div><p class="eyebrow">CONFERÊNCIAS MANUAIS</p><h2>Resultados para encaminhar</h2></div><span class="pill">${pending.length} pendência(s)</span></div>${pending.slice(0, 5).map((x) => `<div class="attention-row"><span class="round-icon">${app.icon("arrow")}</span><div><p class="private">${app.esc(app.caseName(x.caseId))}</p><small class="private">${app.esc(app.MANUAL_CHECK_RESULTS[x.result])} · ${app.timestamp(x.checkedAt)} · ${app.esc(x.notes.slice(0, 120))}</small></div><div class="line-actions">${app.button("task-from-check", "Criar tarefa", "secondary small", x.checkId)}${app.button("detail", "Abrir processo", "ghost small", x.caseId)}</div></div>`).join("")}${pending.length > 5 ? '<p class="muted compact">Exibindo as cinco conferências mais recentes sem tarefa vinculada.</p>' : ""}<p class="muted compact">As conferências são registros feitos por você, não prazos calculados automaticamente.</p></section>` : "";
+      const issues = app.pendingSourceIssues(app.state);
+      const failures = issues.length ? `<section class="attention" aria-label="Falhas nas fontes"><div class="attention-heading"><div><p class="eyebrow">CONSULTAS AUTOMÁTICAS</p><h2>Fontes que precisam de atenção</h2></div><span class="pill">${issues.length} fonte(s)</span></div>${issues.slice(0, 5).map((x) => `<div class="attention-row"><span class="round-icon">${app.icon("refresh")}</span><div><p class="private">${app.esc(app.caseName(x.caseId))} · ${x.source === "datajud" ? "DataJud" : "DJEN"}</p><small class="private">${app.esc(app.statusName[x.status])} · ${app.timestamp(x.updatedAt)} · ${app.esc(x.message.slice(0, 140))}${x.partial ? " · Resultado parcial" : ""}${x.retrying ? " · Nova tentativa em andamento" : ""}</small></div><div class="line-actions">${!x.retrying ? app.button("retry-source", "Tentar novamente", "secondary small", x.jobId) : ""}${app.button("detail", "Abrir processo", "ghost small", x.caseId)}</div></div>`).join("")}${issues.length > 5 ? '<p class="muted compact">Exibindo cinco fontes com falhas não resolvidas. Veja o histórico completo em Fontes e ajustes.</p>' : ""}<p class="muted compact">Falhas anteriores permanecem até uma consulta posterior ser concluída na mesma fonte. Resultados não encontrados não são tratados como erro.</p></section>` : "";
+      const oabIssue = app.pendingOabIssue(app.state);
+      const oabFailure = oabIssue ? `<section class="attention" aria-label="Falha na busca OAB"><div class="attention-heading"><div><p class="eyebrow">PUBLICAÇÕES DJEN</p><h2>Busca por OAB precisa de atenção</h2></div><span class="pill">1 busca</span></div><div class="attention-row"><span class="round-icon">${app.icon("refresh")}</span><div><p class="private">OAB ${app.esc(oabIssue.oab)}/${app.esc(oabIssue.ufOab)}</p><small class="private">${app.esc(app.statusName[oabIssue.status])} · ${app.timestamp(oabIssue.updatedAt)} · ${app.esc(oabIssue.message.slice(0, 140))}${oabIssue.partial ? " · Resultado parcial" : ""}${oabIssue.retrying ? " · Nova tentativa em andamento" : ""}</small></div><div class="line-actions">${!oabIssue.retrying ? app.button("retry-oab", "Tentar novamente", "secondary small", oabIssue.jobId) : ""}${app.button("open-sources", "Ver histórico", "ghost small")}</div></div><p class="muted compact">A retentativa usa a mesma OAB/UF e, quando disponível, o período anterior. Não garante uma consulta completa.</p></section>` : "";
+      const attentionCases = app.state.cases.filter((c) => !c.archived && (c.nextStep || c.review)).slice(0, 5);
+      const attentionList = attentionCases.length ? '<div class="record-list home-attention-list">' + attentionCases.map((c) => '<article class="record">' + app.button("detail", app.esc(c.title), "ghost small", c.id) + '<p class="private">' + app.esc(c.nextStep || "Revisão: " + app.safeDateLabel(c.review)) + "</p></article>").join("") + "</div>" : '<p class="muted">Nenhum processo com próximo passo ou revisão cadastrados.</p>';
+      return attention + reviews + '<section class="panel"><h2>Novidades dos processos</h2><p>Confira movimentações e publicações na central.</p><a class="button secondary" href="#notifications">Abrir Notificações</a></section>' + failures + oabFailure + app.panel("Processos em atenção", attentionList, '<a class="button secondary small" href="#cases">Ver todos os processos ' + app.icon("arrow") + "</a>") + app.metrics();
+    }
+    return { home, agendadosPanel };
+  }
+
+  // views/sources.js
+  function createSourceView(app) {
+    function sourcePage() {
+      const auto = app.autoScheduleInfo(app.state.settings);
+      return `<div class="intro-note">Fontes gratuitas. Sem assinatura, crédito pago ou contratação automática. A abrangência real precisa ser conferida nos processos da sua carteira.</div><div class="split"><section class="panel"><h2>Conexões e consultas</h2><form id="settings-form" class="settings-form"><article class="source-card"><h3>DataJud <span class="pill">Metadados e movimentos</span></h3><p>Lê a base nacional por número CNJ. Consultar novamente não força a atualização do tribunal.</p><label class="check-field"><input type="checkbox" name="datajud" ${app.state.settings.datajud ? "checked" : ""}> Incluir DataJud na atualização</label><label class="field">Chave pública do CNJ<input readonly value="${app.state.settings.datajudKey ? "••••••••" + app.esc(app.state.settings.datajudKey.slice(-4)) : "Sem chave configurada"}" aria-label="Chave pública protegida" style="background:var(--soft);color:var(--muted)"><small>A chave só muda quando você escolhe substituir ou remover.</small></label><div class="links"><button type="button" class="button secondary small" data-key-edit>${app.state.settings.datajudKey ? "Substituir chave" : "Adicionar chave"}</button>${app.state.settings.datajudKey ? '<button type="button" class="button ghost small" data-key-remove>Remover chave</button>' : ""}</div><div data-key-editor hidden><label class="field">Nova chave pública<input name="datajudKey" type="password" disabled autocomplete="off" spellcheck="false" maxlength="256"><small>Cole a chave completa. Ela será aplicada ao salvar configurações.</small></label><button type="button" class="button ghost small" data-key-cancel>Cancelar alteração da chave</button></div><p><a href="https://datajud-wiki.cnj.jus.br/api-publica/acesso/" target="_blank" rel="noopener noreferrer">Obter chave na documentação do CNJ ↗</a></p></article><article class="source-card"><h3>DJEN <span class="pill">Publicações</span></h3><p>Consulta publicações por processo ou OAB. Não representa todos os movimentos do processo.</p><label class="check-field"><input type="checkbox" name="djen" ${app.state.settings.djen ? "checked" : ""}> Incluir DJEN na atualização</label><div class="form-grid"><label class="field">Período de consulta (dias)<input type="number" min="1" max="365" name="djenDays" value="${app.state.settings.djenDays}" required></label><span></span><label class="field">Número da OAB<input name="oab" value="${app.esc(app.state.settings.oab)}" placeholder="Ex.: 123456" maxlength="9"></label><label class="field">UF da OAB<select name="ufOab"><option value="">Selecione</option>${"AC AL AP AM BA CE DF ES GO MA MT MS MG PA PB PR PE PI RJ RN RS RO RR SC SE SP TO".split(" ").map((x) => `<option ${x === app.state.settings.ufOab ? "selected" : ""}>${x}</option>`).join("")}</select></label></div></article><button class="button primary" type="submit">Salvar configurações</button><p class="form-error" id="settings-error" role="alert"></p></form></section><div>${app.schedulePanel(app.state.settings)}<section class="panel"><h2>Dados sob seu controle</h2><p class="muted">No modo integrado, cadastros, anexos e monitoramento ficam no banco local deste computador. No modo arquivo, os dados ficam neste navegador. Exporte uma cópia antes de trocar de perfil ou computador.</p><div class="links">${app.button("backup", "Exportar backup", "primary")}${app.button("restore", "Restaurar backup", "secondary")}</div><p class="warning-note">O backup pode ser protegido por senha, inclui os anexos e, no modo integrado, também o monitoramento SQLite. Guarde a senha. A restauração substitui os dados após prévia e confirmação.</p></section><section class="panel"><h2>Alcance desta versão</h2><ul class="source-limits"><li>Não há busca nacional por CPF/CNPJ.</li><li>TJSP e-SAJ é opcional; não há integração específica com PJe, eproc ou Projudi.</li><li>Não há login em JusBR/PDPJ ou acesso a peças restritas.</li><li>Não há resolução automática de CAPTCHA.</li><li>Não há consulta com navegador e computador desligados.</li><li>Consultas concluídas se referem às fontes e ao período selecionados.</li></ul><p class="muted compact">Painel H.B ${app.VERSION} · dados locais · testes de interface com respostas simuladas são distintos dos testes de conectividade.</p></section></div></div>` + app.jobsPanel();
+    }
+    return { sourcePage };
+  }
+
+  // views/editor.js
+  function createEditorView(app) {
+    function edit2(table, id = "", preset = {}) {
+      const row = { ...preset, ...app.state[table].find((x) => x.id === id) || {} };
+      let fields2 = "";
+      const caseOptions = [["", "Sem processo vinculado"], ...app.state.cases.map((c) => [c.id, c.title])];
+      if (table === "clients") fields2 = app.field("Nome *", "name", row.name, "text", true, 'required maxlength="180"') + app.field("Telefone / WhatsApp", "phone", row.phone, "tel") + app.field("E-mail", "email", row.email, "email") + app.area("Observações", "notes", row.notes);
+      if (table === "cases") fields2 = app.field("Título do caso *", "title", row.title, "text", true, 'required maxlength="240"') + app.field("Número CNJ (opcional para pré-processual)", "cnj", row.cnj ? app.formatCnj(row.cnj) : "", "text", true, 'placeholder="0000000-00.0000.0.00.0000" maxlength="25"') + '<p id="cnj-inference" class="cnj-inference muted compact" aria-live="polite"></p>' + app.field("Unidade de origem (pela tabela oficial, quando disponível)", "originUnit", "", "text", true, 'readonly aria-readonly="true" placeholder="Será identificada pelo CNJ"') + app.djenLookupHTML() + '<details class="datajud-lookup"><summary>Consulta complementar - DataJud</summary><button class="button secondary small" type="button" data-action="datajud-search">Buscar dados no DataJud</button><p class="muted compact">O tribunal e a unidade de origem são inferidos localmente dos dígitos. O nome da unidade vem da tabela oficial disponível para o TJRJ; para outros tribunais, consulte o respectivo cadastro. O DataJud é uma consulta separada para buscar metadados públicos.</p><p id="datajud-status" class="compact" aria-live="polite" role="status"></p><div id="datajud-preview" class="datajud-preview" hidden></div></details>' + app.select("Cliente", "clientId", [["", "Sem cliente vinculado"], ...app.state.clients.map((c) => [c.id, c.name])], row.clientId) + app.field("Autor / parte autora", "plaintiff", row.plaintiff, "text", true, 'maxlength="400"') + app.field("Réu / parte ré", "defendant", row.defendant, "text", true, 'maxlength="400"') + app.field("Área", "area", row.area) + app.select("Etapa de trabalho", "stage", Object.entries(app.STAGES), row.stage || "todo") + app.select("Sistema de tramitação TJRJ (confirmado manualmente)", "judicialSystem", Object.entries(app.JUDICIAL_SYSTEMS), row.judicialSystem || "") + app.field("Data para revisar", "review", row.review, "date") + '<label class="field full">Próximo passo<textarea name="nextStep" maxlength="500" rows="2" placeholder="Ex.: Aguardar manifestação do cliente">' + app.esc(row.nextStep || "") + "</textarea></label>" + app.select("Responsável pela próxima ação", "workOwner", Object.entries(app.WORK_OWNERS), row.workOwner || "me") + app.select("Situação do próximo passo", "workStatus", Object.entries(app.WORK_STATUSES), row.workStatus || "todo") + app.area("Observações", "notes", row.notes);
+      if (table === "cases") fields2 += app.select("Tribunal (inferido pelo CNJ; confira)", "court", Object.entries(app.COURTS), row.court || "") + app.select("Grau / órgão judicial (não consta nos dígitos do CNJ)", "courtLevel", Object.entries(app.COURT_LEVELS), row.courtLevel || "") + app.select("Sistema do processo (não consta nos dígitos do CNJ)", "processSystem", Object.entries(app.PROCESS_SYSTEMS), row.processSystem || "") + app.select("Processo de origem cadastrado", "parentCaseId", [["", "Sem vínculo de origem"], ...app.state.cases.filter((c) => c.id !== id).map((c) => [c.id, c.title + " · " + (c.cnj ? app.formatCnj(c.cnj) : c.docketNumber || "sem CNJ")])], row.parentCaseId || "") + app.field("Número de registro adicional (STJ/STF etc.)", "docketNumber", row.docketNumber, "text", false, 'maxlength="100"') + app.field("Referência externa de origem (não vinculada automaticamente)", "originReference", row.originReference, "text", true, 'maxlength="120"') + '<p class="muted compact">O CNJ identifica segmento, tribunal e código da unidade de origem. Grau e sistema eletrônico precisam ser confirmados por outra fonte. Vincular processos não mistura seus CNJs, publicações, anexos ou histórico.</p>';
+      if (table === "tasks") fields2 = app.field("Tarefa *", "title", row.title, "text", true, 'required maxlength="240"') + app.select("Processo", "caseId", caseOptions, row.caseId) + app.select("Etapa", "stage", Object.entries(app.STAGES), row.stage || "todo") + app.field("Vencimento", "due", row.due, "date", true) + app.area("Observações", "notes", row.notes) + (row.manualCheckId ? `<input type="hidden" name="manualCheckId" value="${app.esc(row.manualCheckId)}"><p class="muted compact">Origem: conferência manual do processo. Defina o vencimento somente após confirmar o prazo na fonte oficial.</p>` : "");
+      if (table === "appointments") fields2 = app.field("Compromisso *", "title", row.title, "text", true, 'required maxlength="240"') + app.field("Data e hora (Brasília) *", "when", row.when, "datetime-local", false, "required") + app.select("Tipo", "kind", [["Reunião", "Reunião"], ["Audiência", "Audiência"], ["Revisão", "Revisão"], ["Prazo confirmado", "Prazo confirmado"]], row.kind || "Reunião") + app.select("Processo", "caseId", caseOptions, row.caseId) + app.area("Observações", "notes", row.notes);
+      if (table === "fees") fields2 = app.field("Descrição do honorário *", "title", row.title, "text", true, 'required maxlength="240"') + app.select("Processo", "caseId", caseOptions, row.caseId) + app.field("Vencimento", "due", row.due, "date") + app.field("Valor total (R$) *", "amount", row.amount !== void 0 ? (row.amount / 100).toFixed(2) : "", "number", false, 'required min="0.01" step="0.01"') + (id ? '<p class="muted compact">Use Recebimentos para lançar valores e estornos.</p>' : app.field("Recebimento inicial (R$)", "paid", "0", "number", false, 'min="0" step="0.01"')) + app.area("Observações", "notes", row.notes);
+      const names2 = { clients: "cliente", cases: "caso", tasks: "tarefa", appointments: "compromisso", fees: "honorário" };
+      app.dialog((id ? "Editar " : "Cadastrar ") + names2[table], `<form id="entity-form" data-table="${table}" data-id="${app.esc(id)}"><div class="form-grid">${fields2}</div>${table === "cases" ? '<section class="datajud-saved-panel"><h3>Dados públicos do processo · DataJud</h3><div id="datajud-fields"></div></section>' : ""}${id && table === "cases" ? '<section id="cnj-change-warning" class="cnj-change-panel" hidden aria-label="Confirmação da correção do CNJ"></section>' : ""}<p class="form-error" id="entity-error" role="alert"></p><div class="form-actions">${id && table === "cases" ? app.button("archive", row.archived ? "Desarquivar" : "Arquivar", "ghost", id) : ""}<button class="button ghost" type="button" data-action="close">Cancelar</button><button class="button primary" type="submit">Salvar ${names2[table]}</button></div></form>`);
+      app.$("#entity-form").dataset.revision = String(app.state.revision);
+      if (table === "cases") {
+        app.initDatajudForm(app.$("#entity-form"), row.datajudDetails);
+        app.updateCnjInference(app.$("#entity-form"));
+        app.renderCnjChangeWarning();
+      }
+    }
+    return { edit: edit2 };
+  }
+
+  // views/settings-events.js
+  function createSettingsEvents(app) {
+    function updateTimeControls2(form) {
+      const enabled = form.querySelector("[name=autoUpdateEnabled]").checked;
+      const rows = [...form.querySelectorAll("[data-time-list] > div")];
+      rows.forEach((row, i) => {
+        row.querySelector("label").firstChild.textContent = "Horário " + (i + 1);
+        row.querySelector("button").setAttribute("aria-label", "Remover horário " + (i + 1));
+      });
+      const add = form.querySelector("[data-time-add]");
+      add.disabled = rows.length >= 6 || !enabled;
+      form.querySelector("[data-time-help]").textContent = rows.length >= 6 ? "Limite de 6 horários atingido. Remova um horário para adicionar outro." : !enabled ? "Ative para editar os horários. Os horários salvos serão preservados." : rows.length ? "Horários repetidos serão reunidos e ordenados ao salvar." : "Adicione ao menos um horário antes de salvar a ativação.";
+      for (const button2 of form.querySelectorAll("[data-time-remove]")) button2.disabled = !enabled;
+    }
+    function handleClick(event) {
+      const t = event.target;
+      const form = t.closest("#settings-form");
+      if (form && t.matches("[data-key-edit],[data-key-remove],[data-key-cancel]")) {
+        app.settingsDirty = true;
+        const box = form.querySelector("[data-key-editor]"), input = box.querySelector("input");
+        if (t.matches("[data-key-edit]")) {
+          box.hidden = false;
+          input.disabled = false;
+          input.value = "";
+          input.required = true;
+          input.focus();
+        }
+        if (t.matches("[data-key-cancel]")) {
+          box.hidden = true;
+          input.disabled = true;
+          input.required = false;
+          input.value = "";
+        }
+        if (t.matches("[data-key-remove]") && confirm("Remover a chave ao salvar configurações? Consultas ao DataJud ficarão indisponíveis até configurar outra chave.")) {
+          box.hidden = false;
+          input.disabled = false;
+          input.required = false;
+          input.value = "";
+          input.placeholder = "Remoção pendente. Salve as configurações ou cancele.";
+        }
+        app.updateSettingsDirty();
+      }
+      const auto = t.closest("#auto-form");
+      if (!auto) return;
+      app.settingsDirty = true;
+      if (t.matches("[data-time-add]")) {
+        const list = auto.querySelector("[data-time-list]");
+        if (list.children.length >= 6) {
+          app.toast("Você pode configurar até 6 horários.");
+          return;
+        }
+        const enabled = auto.querySelector("[name=autoUpdateEnabled]").checked;
+        list.insertAdjacentHTML("beforeend", app.scheduleRow("", list.children.length + 1, enabled));
+        const input = list.lastElementChild.querySelector("input");
+        if (enabled) input.focus();
+        updateTimeControls2(auto);
+      }
+      if (t.matches("[data-time-remove]")) {
+        t.parentElement.remove();
+        updateTimeControls2(auto);
+        auto.querySelector("[data-time-add]").focus();
+      }
+      app.updateSettingsDirty();
+    }
+    function handleChange(event) {
+      if (event.target.name === "autoUpdateEnabled") {
+        const f = event.target.form;
+        for (const x of f.querySelectorAll("[name=autoTime]")) {
+          x.required = event.target.checked;
+          x.disabled = !event.target.checked;
+        }
+        updateTimeControls2(f);
+        app.updateSettingsDirty();
+      }
+    }
+    return { updateTimeControls: updateTimeControls2, handleClick, handleChange };
+  }
+
+  // views/content.js
+  function contentHTML(app, route2) {
+    return {
+      home: app.home,
+      notifications: () => '<div id="notification-center"></div>',
+      agendados: app.agendadosPanel,
+      cases: app.casesPanel,
+      clients: app.clients,
+      tasks: app.tasks,
+      agenda: app.agenda,
+      finance: app.finance,
+      publications: app.publications,
+      sources: app.sourcePage
+    }[route2]();
+  }
+
   // panel-organization.js
   var settingsView = "Fontes";
   var work = ["agendados", "tasks", "agenda"];
@@ -5471,35 +5632,6 @@
     else body = `<div class="table-wrap"><table class="cases-list"><thead><tr><th><span class="sr-only">Selecionar</span></th><th>Processo / cliente</th><th>Etapa</th><th>Revisão</th><th>Últimas consultas</th><th>Ações</th></tr></thead><tbody>${rows.map((c) => `<tr><td><input type="checkbox" aria-label="Selecionar ${escapeHTML(c.title)}" data-select="${escapeHTML(c.id)}" ${selected.has(c.id) ? "checked" : ""}></td><td><button class="cell-title private" data-action="detail" data-id="${escapeHTML(c.id)}">${escapeHTML(c.title)}</button><small class="private">${escapeHTML(c.cnj ? formatCnj(c.cnj) : c.docketNumber ? "Registro " + c.docketNumber : "Sem CNJ")} · ${escapeHTML(clientName(c.clientId))}</small></td><td>${tag(STAGES[c.stage])}</td><td>${date(c.review)}</td><td><small>${escapeHTML(lastResult(c))}</small></td><td><div class="line-actions">${c.archived ? button("archive", "Desarquivar", "secondary small", c.id) : c.cnj ? button("djen-process", "Buscar no DJEN", "primary small", c.id) : ""}${button("edit-cases", "Editar", "ghost small", c.id)}</div></td></tr>`).join("")}</tbody></table></div>`;
     return panel('Sua carteira <span class="pill">' + rows.length + "</span>", tabs + filters + body, toolbar());
   }
-  function agendadosPanel() {
-    const model = scheduledCases(state.cases, { owner: scheduledOwner, query, sort: scheduledSort, today: dateKey(), clientName });
-    const ordered = Object.values(model.groups).flat(), pageSize = 15, pages = Math.max(1, Math.ceil(ordered.length / pageSize));
-    scheduledPage = Math.max(1, Math.min(pages, scheduledPage));
-    const visibleIds = new Set(ordered.slice((scheduledPage - 1) * pageSize, scheduledPage * pageSize).map((c) => c.id));
-    const options = [["all", "Todos"], ...Object.entries(WORK_OWNERS)].map(([key, label2]) => `<button type="button" data-action="scheduled-owner" data-id="${key}" class="agendados-owner ${key === scheduledOwner ? "active" : ""}" aria-pressed="${key === scheduledOwner}">${escapeHTML(label2)} <span>${model.counts[key]}</span></button>`).join("");
-    const overview2 = `<div class="agendados-overview" aria-label="Resumo de revisões"><div><strong>${model.overview.overdue}</strong><span>Atrasadas</span></div><div><strong>${model.overview.today}</strong><span>Revisar hoje</span></div><div><strong>${model.overview.week}</strong><span>Próximos 7 dias</span></div><div><strong>${model.overview.pending}</strong><span>Pendências abertas</span></div></div>`;
-    const filters = `<div class="agendados-toolbar"><div class="agendados-owners" role="group" aria-label="Responsável pela próxima ação">${options}</div><div class="agendados-toolbar-right"><label class="field">Buscar processo ou providência<input class="search" data-filter="search" aria-label="Buscar nos agendados" placeholder="Cliente, CNJ, próximo passo…" value="${escapeHTML(query)}"></label><label class="field">Ordenar por<select data-scheduled-sort="true" aria-label="Ordenar agendados">${Object.entries(SCHEDULE_SORTS).map(([key, label2]) => `<option value="${key}" ${scheduledSort === key ? "selected" : ""}>${escapeHTML(label2)}</option>`).join("")}</select></label></div></div>`;
-    const groups = Object.entries(model.groups).map(([key, rows]) => [key, rows.filter((c) => visibleIds.has(c.id))]).filter(([, rows]) => rows.length).map(([key, rows]) => `<section class="agendados-group" aria-label="${escapeHTML(SCHEDULE_GROUPS[key])}"><div class="agendados-group-heading"><h3>${escapeHTML(SCHEDULE_GROUPS[key])}</h3><span>${rows.length}</span></div><div class="agendados-list">${rows.map((c) => {
-      const pending = (c.pendingItems || []).filter((item) => !item.done).length, viewedToday = c.reviewedAt && dateKey(new Date(c.reviewedAt)) === dateKey(), owner = c.workOwner || "me", status = c.workStatus || "todo";
-      return `<article class="agendados-row"><div class="agendados-case"><button class="cell-title private" data-action="detail" data-id="${escapeHTML(c.id)}">${escapeHTML(c.title)}</button><small class="private">${escapeHTML(clientName(c.clientId))} · ${escapeHTML(c.cnj ? formatCnj(c.cnj) : c.docketNumber || "Sem CNJ")}</small></div><div class="agendados-status">${tag(WORK_OWNERS[owner] || WORK_OWNERS.me, "")}${tag(WORK_STATUSES[status] || WORK_STATUSES.todo, status === "ready" ? "action" : status === "done" ? "success" : "")}</div><div class="agendados-next"><strong class="private">${escapeHTML(c.nextStep || "Próximo passo ainda não definido")}</strong><small>${escapeHTML(c.area || "Área não informada")} · ${escapeHTML(PROCESS_SYSTEMS[c.processSystem || ""] || "Sistema não informado")}</small>${pending ? `<span class="agendados-pending">${pending} pendência(s) aberta(s)</span>` : ""}</div><div class="agendados-review"><strong>${c.review ? date(c.review) : "Sem data"}</strong><small>${c.reviewedAt ? "Visto: " + timestamp(c.reviewedAt) : "Ainda não visto"}</small></div><div class="agendados-actions">${button("detail", "Abrir ficha", "secondary small", c.id)}${button("workflow-viewed", viewedToday ? "Visto hoje ✓" : "Marcar visto", "ghost small", c.id)}</div></article>`;
-    }).join("")}</div></section>`).join("");
-    const emptyMessage = state.cases.some((c) => !c.archived) ? '<div class="empty"><h2>Nenhum processo neste filtro</h2><p>Altere o responsável ou o termo pesquisado.</p></div>' : empty2("Organize suas revisões", "Cadastre o primeiro processo. Depois registre o próximo passo, responsável e data de revisão.", "new-cases", "Cadastrar processo");
-    const paging = model.total ? `<div class="agendados-footer"><span>Mostrando ${(scheduledPage - 1) * pageSize + 1} a ${Math.min(scheduledPage * pageSize, model.total)} de ${model.total} processo(s)</span><div class="line-actions"><button class="button ghost small" data-action="scheduled-prev" ${scheduledPage <= 1 ? "disabled" : ""}>Anterior</button><span class="muted compact">${scheduledPage} de ${pages}</span><button class="button secondary small" data-action="scheduled-next" ${scheduledPage >= pages ? "disabled" : ""}>Próxima</button></div></div>` : "";
-    return '<p class="intro-note">As revisões e providências são planejadas manualmente. “Visto” é um controle interno e não representa ciência de intimação nem contagem automática de prazo judicial.</p>' + overview2 + panel(`Agendados <span class="pill">${model.total}</span>`, filters + (groups || emptyMessage) + paging);
-  }
-  function home() {
-    const today = dateKey(), due = [...state.appointments.filter((a) => a.when?.slice(0, 10) === today).map((a) => ({ title: a.title, sub: "Compromisso · " + a.when.slice(11, 16), action: "edit-appointments", id: a.id })), ...state.tasks.filter((t) => t.due && t.due <= today && t.stage !== "done").map((t) => ({ title: t.title, sub: "Tarefa · " + caseName(t.caseId), action: "edit-tasks", id: t.id })), ...state.cases.filter((c) => !c.archived && c.review && c.review <= today).map((c) => ({ title: c.title, sub: "Revisão agendada para " + date(c.review), action: "detail", id: c.id }))];
-    const attention = `<section class="attention"><div class="attention-heading"><div><p class="eyebrow">HOJE</p><h2>O que pede atenção</h2></div><span class="pill">${due.length} ponto(s) de atenção</span></div>${due.length ? due.slice(0, 5).map((d) => `<div class="attention-row"><span class="round-icon">${icon("arrow")}</span><div><p class="private">${escapeHTML(d.title)}</p><small class="private">${escapeHTML(d.sub)}</small></div>${button(d.action, "Abrir", "ghost small", d.id)}</div>`).join("") : '<div class="attention-row"><span class="round-icon">' + icon("check") + "</span><div><p>Nenhuma pendência para hoje</p><small>Revisões e tarefas cadastradas aparecem aqui.</small></div></div>"}</section>`;
-    const pending = pendingManualReviews(state);
-    const reviews = pending.length ? `<section class="attention" aria-label="Conferências pendentes"><div class="attention-heading"><div><p class="eyebrow">CONFERÊNCIAS MANUAIS</p><h2>Resultados para encaminhar</h2></div><span class="pill">${pending.length} pendência(s)</span></div>${pending.slice(0, 5).map((x) => `<div class="attention-row"><span class="round-icon">${icon("arrow")}</span><div><p class="private">${escapeHTML(caseName(x.caseId))}</p><small class="private">${escapeHTML(MANUAL_CHECK_RESULTS[x.result])} · ${timestamp(x.checkedAt)} · ${escapeHTML(x.notes.slice(0, 120))}</small></div><div class="line-actions">${button("task-from-check", "Criar tarefa", "secondary small", x.checkId)}${button("detail", "Abrir processo", "ghost small", x.caseId)}</div></div>`).join("")}${pending.length > 5 ? '<p class="muted compact">Exibindo as cinco conferências mais recentes sem tarefa vinculada.</p>' : ""}<p class="muted compact">As conferências são registros feitos por você, não prazos calculados automaticamente.</p></section>` : "";
-    const issues = pendingSourceIssues(state);
-    const failures = issues.length ? `<section class="attention" aria-label="Falhas nas fontes"><div class="attention-heading"><div><p class="eyebrow">CONSULTAS AUTOMÁTICAS</p><h2>Fontes que precisam de atenção</h2></div><span class="pill">${issues.length} fonte(s)</span></div>${issues.slice(0, 5).map((x) => `<div class="attention-row"><span class="round-icon">${icon("refresh")}</span><div><p class="private">${escapeHTML(caseName(x.caseId))} · ${x.source === "datajud" ? "DataJud" : "DJEN"}</p><small class="private">${escapeHTML(statusName[x.status])} · ${timestamp(x.updatedAt)} · ${escapeHTML(x.message.slice(0, 140))}${x.partial ? " · Resultado parcial" : ""}${x.retrying ? " · Nova tentativa em andamento" : ""}</small></div><div class="line-actions">${!x.retrying ? button("retry-source", "Tentar novamente", "secondary small", x.jobId) : ""}${button("detail", "Abrir processo", "ghost small", x.caseId)}</div></div>`).join("")}${issues.length > 5 ? '<p class="muted compact">Exibindo cinco fontes com falhas não resolvidas. Veja o histórico completo em Fontes e ajustes.</p>' : ""}<p class="muted compact">Falhas anteriores permanecem até uma consulta posterior ser concluída na mesma fonte. Resultados não encontrados não são tratados como erro.</p></section>` : "";
-    const oabIssue = pendingOabIssue(state);
-    const oabFailure = oabIssue ? `<section class="attention" aria-label="Falha na busca OAB"><div class="attention-heading"><div><p class="eyebrow">PUBLICAÇÕES DJEN</p><h2>Busca por OAB precisa de atenção</h2></div><span class="pill">1 busca</span></div><div class="attention-row"><span class="round-icon">${icon("refresh")}</span><div><p class="private">OAB ${escapeHTML(oabIssue.oab)}/${escapeHTML(oabIssue.ufOab)}</p><small class="private">${escapeHTML(statusName[oabIssue.status])} · ${timestamp(oabIssue.updatedAt)} · ${escapeHTML(oabIssue.message.slice(0, 140))}${oabIssue.partial ? " · Resultado parcial" : ""}${oabIssue.retrying ? " · Nova tentativa em andamento" : ""}</small></div><div class="line-actions">${!oabIssue.retrying ? button("retry-oab", "Tentar novamente", "secondary small", oabIssue.jobId) : ""}${button("open-sources", "Ver histórico", "ghost small")}</div></div><p class="muted compact">A retentativa usa a mesma OAB/UF e, quando disponível, o período anterior. Não garante uma consulta completa.</p></section>` : "";
-    const attentionCases = state.cases.filter((c) => !c.archived && (c.nextStep || c.review)).slice(0, 5);
-    const attentionList = attentionCases.length ? '<div class="record-list home-attention-list">' + attentionCases.map((c) => '<article class="record">' + button("detail", escapeHTML(c.title), "ghost small", c.id) + '<p class="private">' + escapeHTML(c.nextStep || "Revisão: " + safeDateLabel(c.review)) + "</p></article>").join("") + "</div>" : '<p class="muted">Nenhum processo com próximo passo ou revisão cadastrados.</p>';
-    return attention + reviews + '<section class="panel"><h2>Novidades dos processos</h2><p>Confira movimentações e publicações na central.</p><a class="button secondary" href="#notifications">Abrir Notificações</a></section>' + failures + oabFailure + panel("Processos em atenção", attentionList, '<a class="button secondary small" href="#cases">Ver todos os processos ' + icon("arrow") + "</a>") + metrics();
-  }
   function clients() {
     const rows = state.clients.filter((x) => `${x.name} ${x.email} ${x.phone}`.toLowerCase().includes(query.toLowerCase()));
     return panel("Relacionamentos", rows.length ? `<div class="table-wrap"><table><thead><tr><th>Cliente</th><th>Contato</th><th>Casos</th><th></th></tr></thead><tbody>${rows.map((c) => `<tr><td><strong class="private">${escapeHTML(c.name)}</strong><small class="private">${escapeHTML(c.notes).slice(0, 120)}</small></td><td><span class="private">${escapeHTML(c.email || "—")}</span><small class="private">${escapeHTML(c.phone || "Sem telefone")}</small></td><td>${state.cases.filter((x) => x.clientId === c.id).length}</td><td><div class="line-actions">${button("edit-clients", "Editar", "ghost small", c.id)}${digits(c.phone).length >= 10 ? `<a class="button secondary small" href="https://wa.me/${digits(c.phone).startsWith("55") ? digits(c.phone) : "55" + digits(c.phone)}" target="_blank" rel="noopener noreferrer">WhatsApp ↗</a>` : ""}</div></td></tr>`).join("")}</tbody></table></div>` : empty2("Contatos com contexto", "Reúna seus clientes e associe cada um aos casos que acompanha.", "new-clients", "Cadastrar cliente"), `<input class="search" data-filter="search" aria-label="Buscar registros" placeholder="Buscar cliente…" value="${escapeHTML(query)}">`);
@@ -5614,10 +5746,6 @@
       }
     }
   }
-  function sourcePage() {
-    const auto = autoScheduleInfo(state.settings);
-    return `<div class="intro-note">Fontes gratuitas. Sem assinatura, crédito pago ou contratação automática. A abrangência real precisa ser conferida nos processos da sua carteira.</div><div class="split"><section class="panel"><h2>Conexões e consultas</h2><form id="settings-form" class="settings-form"><article class="source-card"><h3>DataJud <span class="pill">Metadados e movimentos</span></h3><p>Lê a base nacional por número CNJ. Consultar novamente não força a atualização do tribunal.</p><label class="check-field"><input type="checkbox" name="datajud" ${state.settings.datajud ? "checked" : ""}> Incluir DataJud na atualização</label><label class="field">Chave pública do CNJ<input readonly value="${state.settings.datajudKey ? "••••••••" + escapeHTML(state.settings.datajudKey.slice(-4)) : "Sem chave configurada"}" aria-label="Chave pública protegida" style="background:var(--soft);color:var(--muted)"><small>A chave só muda quando você escolhe substituir ou remover.</small></label><div class="links"><button type="button" class="button secondary small" data-key-edit>${state.settings.datajudKey ? "Substituir chave" : "Adicionar chave"}</button>${state.settings.datajudKey ? '<button type="button" class="button ghost small" data-key-remove>Remover chave</button>' : ""}</div><div data-key-editor hidden><label class="field">Nova chave pública<input name="datajudKey" type="password" disabled autocomplete="off" spellcheck="false" maxlength="256"><small>Cole a chave completa. Ela será aplicada ao salvar configurações.</small></label><button type="button" class="button ghost small" data-key-cancel>Cancelar alteração da chave</button></div><p><a href="https://datajud-wiki.cnj.jus.br/api-publica/acesso/" target="_blank" rel="noopener noreferrer">Obter chave na documentação do CNJ ↗</a></p></article><article class="source-card"><h3>DJEN <span class="pill">Publicações</span></h3><p>Consulta publicações por processo ou OAB. Não representa todos os movimentos do processo.</p><label class="check-field"><input type="checkbox" name="djen" ${state.settings.djen ? "checked" : ""}> Incluir DJEN na atualização</label><div class="form-grid"><label class="field">Período de consulta (dias)<input type="number" min="1" max="365" name="djenDays" value="${state.settings.djenDays}" required></label><span></span><label class="field">Número da OAB<input name="oab" value="${escapeHTML(state.settings.oab)}" placeholder="Ex.: 123456" maxlength="9"></label><label class="field">UF da OAB<select name="ufOab"><option value="">Selecione</option>${"AC AL AP AM BA CE DF ES GO MA MT MS MG PA PB PR PE PI RJ RN RS RO RR SC SE SP TO".split(" ").map((x) => `<option ${x === state.settings.ufOab ? "selected" : ""}>${x}</option>`).join("")}</select></label></div></article><button class="button primary" type="submit">Salvar configurações</button><p class="form-error" id="settings-error" role="alert"></p></form></section><div>${schedulePanel(state.settings)}<section class="panel"><h2>Dados sob seu controle</h2><p class="muted">No modo integrado, cadastros, anexos e monitoramento ficam no banco local deste computador. No modo arquivo, os dados ficam neste navegador. Exporte uma cópia antes de trocar de perfil ou computador.</p><div class="links">${button("backup", "Exportar backup", "primary")}${button("restore", "Restaurar backup", "secondary")}</div><p class="warning-note">O backup pode ser protegido por senha, inclui os anexos e, no modo integrado, também o monitoramento SQLite. Guarde a senha. A restauração substitui os dados após prévia e confirmação.</p></section><section class="panel"><h2>Alcance desta versão</h2><ul class="source-limits"><li>Não há busca nacional por CPF/CNPJ.</li><li>TJSP e-SAJ é opcional; não há integração específica com PJe, eproc ou Projudi.</li><li>Não há login em JusBR/PDPJ ou acesso a peças restritas.</li><li>Não há resolução automática de CAPTCHA.</li><li>Não há consulta com navegador e computador desligados.</li><li>Consultas concluídas se referem às fontes e ao período selecionados.</li></ul><p class="muted compact">Painel H.B ${VERSION} · dados locais · testes de interface com respostas simuladas são distintos dos testes de conectividade.</p></section></div></div>` + jobsPanel();
-  }
   function jobsPanel() {
     const rows = state.jobs.slice(-60).reverse(), title = integrated ? "Histórico anterior · navegador" : "Histórico de consultas";
     if (!rows.length) return panel(title, empty2("Nenhuma consulta executada", "As buscas e eventuais falhas serão registradas aqui."));
@@ -5649,7 +5777,7 @@
     $("#new-record").innerHTML = icon("plus") + addMap[route][1];
     const running = state.jobs.filter((j2) => ["queued", "running"].includes(j2.status));
     $("#job-progress").innerHTML = running.length ? `<div class="job-banner">${icon("refresh")}<p><strong>${running.length} consulta(s) pendente(s)</strong>Você pode continuar usando o painel. Resultados serão salvos por fonte.</p>${button("cancel", "Cancelar", "ghost small")}${button("resume", "Continuar", "secondary small")}</div>` : "";
-    $("#content").innerHTML = { home, notifications: () => '<div id="notification-center"></div>', agendados: agendadosPanel, cases: casesPanel, clients, tasks, agenda, finance, publications, sources: sourcePage }[route]();
+    $("#content").innerHTML = contentHTML(viewApp, route);
     if (route === "sources") for (const id of ["settings-form", "auto-form"]) rememberForm(document.getElementById(id));
     if (route === "notifications") notificationCenter.mount();
     if (route === "publications") void refreshPublications();
@@ -5714,23 +5842,7 @@
     notice.innerHTML = `<h3>Confirme a correção do CNJ</h3><p class="compact">De <strong>${escapeHTML(formatCnj(old.cnj))}</strong> para <strong>${proposed ? validCnj(proposed) ? escapeHTML(formatCnj(proposed)) : "número ainda inválido" : "sem CNJ"}</strong>.</p><p class="compact">Dados associados atualmente: ${items.map(([label2, total]) => `${total} ${label2}`).join(" · ")}.</p><p class="compact">Publicações e consultas do número anterior serão separadas; buscas pendentes serão canceladas. Tarefas, compromissos, honorários, recebimentos e anexos permanecerão nesta ficha, por isso precisam de revisão manual. As conferências antigas continuam no histórico exportado, mas não são exibidas como conferência do novo CNJ.</p><label class="check-field"><input type="checkbox" name="confirmCnjChange" value="yes" required> Conferi os números CNJ e reconheço que devo revisar os vínculos preservados.</label>`;
   }
   function edit(table, id = "", preset = {}) {
-    const row = { ...preset, ...state[table].find((x) => x.id === id) || {} };
-    let fields2 = "";
-    const caseOptions = [["", "Sem processo vinculado"], ...state.cases.map((c) => [c.id, c.title])];
-    if (table === "clients") fields2 = field("Nome *", "name", row.name, "text", true, 'required maxlength="180"') + field("Telefone / WhatsApp", "phone", row.phone, "tel") + field("E-mail", "email", row.email, "email") + area("Observações", "notes", row.notes);
-    if (table === "cases") fields2 = field("Título do caso *", "title", row.title, "text", true, 'required maxlength="240"') + field("Número CNJ (opcional para pré-processual)", "cnj", row.cnj ? formatCnj(row.cnj) : "", "text", true, 'placeholder="0000000-00.0000.0.00.0000" maxlength="25"') + '<p id="cnj-inference" class="cnj-inference muted compact" aria-live="polite"></p>' + field("Unidade de origem (pela tabela oficial, quando disponível)", "originUnit", "", "text", true, 'readonly aria-readonly="true" placeholder="Será identificada pelo CNJ"') + djenLookupHTML() + '<details class="datajud-lookup"><summary>Consulta complementar - DataJud</summary><button class="button secondary small" type="button" data-action="datajud-search">Buscar dados no DataJud</button><p class="muted compact">O tribunal e a unidade de origem são inferidos localmente dos dígitos. O nome da unidade vem da tabela oficial disponível para o TJRJ; para outros tribunais, consulte o respectivo cadastro. O DataJud é uma consulta separada para buscar metadados públicos.</p><p id="datajud-status" class="compact" aria-live="polite" role="status"></p><div id="datajud-preview" class="datajud-preview" hidden></div></details>' + select("Cliente", "clientId", [["", "Sem cliente vinculado"], ...state.clients.map((c) => [c.id, c.name])], row.clientId) + field("Autor / parte autora", "plaintiff", row.plaintiff, "text", true, 'maxlength="400"') + field("Réu / parte ré", "defendant", row.defendant, "text", true, 'maxlength="400"') + field("Área", "area", row.area) + select("Etapa de trabalho", "stage", Object.entries(STAGES), row.stage || "todo") + select("Sistema de tramitação TJRJ (confirmado manualmente)", "judicialSystem", Object.entries(JUDICIAL_SYSTEMS), row.judicialSystem || "") + field("Data para revisar", "review", row.review, "date") + '<label class="field full">Próximo passo<textarea name="nextStep" maxlength="500" rows="2" placeholder="Ex.: Aguardar manifestação do cliente">' + escapeHTML(row.nextStep || "") + "</textarea></label>" + select("Responsável pela próxima ação", "workOwner", Object.entries(WORK_OWNERS), row.workOwner || "me") + select("Situação do próximo passo", "workStatus", Object.entries(WORK_STATUSES), row.workStatus || "todo") + area("Observações", "notes", row.notes);
-    if (table === "cases") fields2 += select("Tribunal (inferido pelo CNJ; confira)", "court", Object.entries(COURTS), row.court || "") + select("Grau / órgão judicial (não consta nos dígitos do CNJ)", "courtLevel", Object.entries(COURT_LEVELS), row.courtLevel || "") + select("Sistema do processo (não consta nos dígitos do CNJ)", "processSystem", Object.entries(PROCESS_SYSTEMS), row.processSystem || "") + select("Processo de origem cadastrado", "parentCaseId", [["", "Sem vínculo de origem"], ...state.cases.filter((c) => c.id !== id).map((c) => [c.id, c.title + " · " + (c.cnj ? formatCnj(c.cnj) : c.docketNumber || "sem CNJ")])], row.parentCaseId || "") + field("Número de registro adicional (STJ/STF etc.)", "docketNumber", row.docketNumber, "text", false, 'maxlength="100"') + field("Referência externa de origem (não vinculada automaticamente)", "originReference", row.originReference, "text", true, 'maxlength="120"') + '<p class="muted compact">O CNJ identifica segmento, tribunal e código da unidade de origem. Grau e sistema eletrônico precisam ser confirmados por outra fonte. Vincular processos não mistura seus CNJs, publicações, anexos ou histórico.</p>';
-    if (table === "tasks") fields2 = field("Tarefa *", "title", row.title, "text", true, 'required maxlength="240"') + select("Processo", "caseId", caseOptions, row.caseId) + select("Etapa", "stage", Object.entries(STAGES), row.stage || "todo") + field("Vencimento", "due", row.due, "date", true) + area("Observações", "notes", row.notes) + (row.manualCheckId ? `<input type="hidden" name="manualCheckId" value="${escapeHTML(row.manualCheckId)}"><p class="muted compact">Origem: conferência manual do processo. Defina o vencimento somente após confirmar o prazo na fonte oficial.</p>` : "");
-    if (table === "appointments") fields2 = field("Compromisso *", "title", row.title, "text", true, 'required maxlength="240"') + field("Data e hora (Brasília) *", "when", row.when, "datetime-local", false, "required") + select("Tipo", "kind", [["Reunião", "Reunião"], ["Audiência", "Audiência"], ["Revisão", "Revisão"], ["Prazo confirmado", "Prazo confirmado"]], row.kind || "Reunião") + select("Processo", "caseId", caseOptions, row.caseId) + area("Observações", "notes", row.notes);
-    if (table === "fees") fields2 = field("Descrição do honorário *", "title", row.title, "text", true, 'required maxlength="240"') + select("Processo", "caseId", caseOptions, row.caseId) + field("Vencimento", "due", row.due, "date") + field("Valor total (R$) *", "amount", row.amount !== void 0 ? (row.amount / 100).toFixed(2) : "", "number", false, 'required min="0.01" step="0.01"') + (id ? '<p class="muted compact">Use Recebimentos para lançar valores e estornos.</p>' : field("Recebimento inicial (R$)", "paid", "0", "number", false, 'min="0" step="0.01"')) + area("Observações", "notes", row.notes);
-    const names2 = { clients: "cliente", cases: "caso", tasks: "tarefa", appointments: "compromisso", fees: "honorário" };
-    dialog((id ? "Editar " : "Cadastrar ") + names2[table], `<form id="entity-form" data-table="${table}" data-id="${escapeHTML(id)}"><div class="form-grid">${fields2}</div>${table === "cases" ? '<section class="datajud-saved-panel"><h3>Dados públicos do processo · DataJud</h3><div id="datajud-fields"></div></section>' : ""}${id && table === "cases" ? '<section id="cnj-change-warning" class="cnj-change-panel" hidden aria-label="Confirmação da correção do CNJ"></section>' : ""}<p class="form-error" id="entity-error" role="alert"></p><div class="form-actions">${id && table === "cases" ? button("archive", row.archived ? "Desarquivar" : "Arquivar", "ghost", id) : ""}<button class="button ghost" type="button" data-action="close">Cancelar</button><button class="button primary" type="submit">Salvar ${names2[table]}</button></div></form>`);
-    $("#entity-form").dataset.revision = String(state.revision);
-    if (table === "cases") {
-      initDatajudForm($("#entity-form"), row.datajudDetails);
-      updateCnjInference($("#entity-form"));
-      renderCnjChangeWarning();
-    }
+    return viewApp.edit(table, id, preset);
   }
   var activeDetailCaseId = "";
   var localHistoryPage = 1;
@@ -6057,6 +6169,90 @@
     ...createBackupActions(actionApp),
     ...createGeneralActions(actionApp)
   };
+  var viewApp = Object.create(actionApp);
+  Object.defineProperties(viewApp, {
+    query: { get: () => query, set: (value) => {
+      query = value;
+    } },
+    scheduledSort: { get: () => scheduledSort, set: (value) => {
+      scheduledSort = value;
+    } },
+    settingsDirty: { get: () => settingsDirty, set: (value) => {
+      settingsDirty = value;
+    } },
+    publicationLoading: { get: () => publicationLoading, set: (value) => {
+      publicationLoading = value;
+    } },
+    publicationLoaded: { get: () => publicationLoaded, set: (value) => {
+      publicationLoaded = value;
+    } },
+    publicationError: { get: () => publicationError, set: (value) => {
+      publicationError = value;
+    } },
+    publicationFetched: { get: () => publicationFetched, set: (value) => {
+      publicationFetched = value;
+    } }
+  });
+  var boardViews = createBoardViews(viewApp);
+  var sourceView = createSourceView(viewApp);
+  var editorView = createEditorView(viewApp);
+  Object.assign(viewApp, {
+    home: boardViews.home,
+    agendadosPanel: boardViews.agendadosPanel,
+    sourcePage: sourceView.sourcePage,
+    edit: editorView.edit,
+    casesPanel,
+    clients,
+    tasks,
+    agenda,
+    finance,
+    publications,
+    jobsPanel,
+    empty: empty2,
+    panel,
+    metric,
+    metrics,
+    toolbar,
+    filteredCases,
+    lastResult,
+    caseName,
+    clientName,
+    date,
+    timestamp,
+    button,
+    tag,
+    icon,
+    esc: escapeHTML,
+    dateKey,
+    safeDateLabel,
+    statusName,
+    pendingManualReviews,
+    pendingSourceIssues,
+    pendingOabIssue,
+    SCHEDULE_GROUPS,
+    SCHEDULE_SORTS,
+    routes,
+    scheduledCases,
+    scheduleRow,
+    schedulePanel,
+    djenLookupHTML,
+    field,
+    area,
+    select,
+    dialog,
+    rememberForm,
+    renderCnjChangeWarning,
+    initDatajudForm,
+    updateCnjInference,
+    updateSettingsDirty,
+    VERSION,
+    CHANGELOG,
+    STAGES,
+    WORK_STATUSES,
+    COURTS,
+    COURT_LEVELS,
+    autoScheduleInfo
+  });
   async function action(name, id, caseId = "") {
     const handler = actionHandlers[name];
     if (handler) return handler({ name, id, caseId });
@@ -6161,79 +6357,10 @@
       }
     }, "Etapa atualizada.").catch((e) => toast(e.message));
   });
-  function updateTimeControls(form) {
-    const enabled = form.querySelector("[name=autoUpdateEnabled]").checked;
-    const rows = [...form.querySelectorAll("[data-time-list] > div")];
-    rows.forEach((row, i) => {
-      row.querySelector("label").firstChild.textContent = "Horário " + (i + 1);
-      row.querySelector("button").setAttribute("aria-label", "Remover horário " + (i + 1));
-    });
-    const add = form.querySelector("[data-time-add]");
-    add.disabled = rows.length >= 6 || !enabled;
-    form.querySelector("[data-time-help]").textContent = rows.length >= 6 ? "Limite de 6 horários atingido. Remova um horário para adicionar outro." : !enabled ? "Ative para editar os horários. Os horários salvos serão preservados." : rows.length ? "Horários repetidos serão reunidos e ordenados ao salvar." : "Adicione ao menos um horário antes de salvar a ativação.";
-    for (const button2 of form.querySelectorAll("[data-time-remove]")) button2.disabled = !enabled;
-  }
-  document.addEventListener("click", (event) => {
-    const t = event.target;
-    const form = t.closest("#settings-form");
-    if (form && t.matches("[data-key-edit],[data-key-remove],[data-key-cancel]")) {
-      settingsDirty = true;
-      const box = form.querySelector("[data-key-editor]"), input = box.querySelector("input");
-      if (t.matches("[data-key-edit]")) {
-        box.hidden = false;
-        input.disabled = false;
-        input.value = "";
-        input.required = true;
-        input.focus();
-      }
-      if (t.matches("[data-key-cancel]")) {
-        box.hidden = true;
-        input.disabled = true;
-        input.required = false;
-        input.value = "";
-      }
-      if (t.matches("[data-key-remove]") && confirm("Remover a chave ao salvar configurações? Consultas ao DataJud ficarão indisponíveis até configurar outra chave.")) {
-        box.hidden = false;
-        input.disabled = false;
-        input.required = false;
-        input.value = "";
-        input.placeholder = "Remoção pendente. Salve as configurações ou cancele.";
-      }
-      updateSettingsDirty();
-    }
-    const auto = t.closest("#auto-form");
-    if (!auto) return;
-    settingsDirty = true;
-    if (t.matches("[data-time-add]")) {
-      const list = auto.querySelector("[data-time-list]");
-      if (list.children.length >= 6) {
-        toast("Você pode configurar até 6 horários.");
-        return;
-      }
-      const enabled = auto.querySelector("[name=autoUpdateEnabled]").checked;
-      list.insertAdjacentHTML("beforeend", scheduleRow("", list.children.length + 1, enabled));
-      const input = list.lastElementChild.querySelector("input");
-      if (enabled) input.focus();
-      updateTimeControls(auto);
-    }
-    if (t.matches("[data-time-remove]")) {
-      t.parentElement.remove();
-      updateTimeControls(auto);
-      auto.querySelector("[data-time-add]").focus();
-    }
-    updateSettingsDirty();
-  });
-  document.addEventListener("change", (event) => {
-    if (event.target.name === "autoUpdateEnabled") {
-      const f = event.target.form;
-      for (const x of f.querySelectorAll("[name=autoTime]")) {
-        x.required = event.target.checked;
-        x.disabled = !event.target.checked;
-      }
-      updateTimeControls(f);
-      updateSettingsDirty();
-    }
-  });
+  var settingsEvents = createSettingsEvents(viewApp);
+  var updateTimeControls = (form) => settingsEvents.updateTimeControls(form);
+  document.addEventListener("click", settingsEvents.handleClick);
+  document.addEventListener("change", settingsEvents.handleChange);
   document.addEventListener("click", (event) => {
     const t = event.target.closest('[data-action="close"],#close-dialog,a[href^="#"]');
     if (!t) return;
