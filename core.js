@@ -2,7 +2,7 @@ import {validStoredDate} from './safe-dates.js';
 import {STAGES,WORK_STATUSES,WORK_OWNERS,assertCaseStage,assertCaseNotArchived,setTaskStage,setPendingDone,createPendingItem,pendingIsConsistent,ALL_JOB_STATES,JOB_ACTIVE_STATES,JOB_RESULT_STATES,JOB_FAILURE_STATES,transitionJob} from './state-machines.js';
 export {STAGES,WORK_STATUSES,WORK_OWNERS,setTaskStage,setPendingDone,createPendingItem,ALL_JOB_STATES,JOB_ACTIVE_STATES,JOB_RESULT_STATES,JOB_FAILURE_STATES,transitionJob};
 export {JOB_STATES,SERVICE_JOB_STATES,JOB_TRANSITIONS,JOB_STATUS_LABELS,setCaseStage,setCaseArchived,toggleTaskDone,previousTaskStage,workOwnerOf,workStatusOf,isBaselineEvent,notificationState,canTransitionJob} from './state-machines.js';
-export const VERSION = '0.6.8';
+export const VERSION = '0.6.9';
 export function taskView(tasks,query='',filter='open'){
   if(!['open','done','all'].includes(filter))throw Error('Filtro de tarefas inválido.');
   const fold=v=>String(v??'').normalize('NFD').replace(/\p{M}/gu,'').toLocaleLowerCase('pt-BR');

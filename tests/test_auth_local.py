@@ -105,7 +105,7 @@ class LocalAuthTests(unittest.TestCase):
         self.assertEqual(status, 401)
         status, _, body = self.request("GET", "/api/v1/status", headers=self.admin_headers())
         self.assertEqual(status, 200)
-        self.assertEqual(json.loads(body)["appVersion"], "0.6.8")
+        self.assertEqual(json.loads(body)["appVersion"], "0.6.9")
         status, _, body = self.request("POST", "/api/v1/shutdown", {}, self.admin_headers())
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(body)["status"], "stopping")
