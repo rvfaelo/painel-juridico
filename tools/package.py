@@ -50,7 +50,7 @@ files = release_files(ROOT)
 # O pacote de release nao inclui tests/ nem os utilitarios de navegador.
 # Remove apenas esses atalhos do package.json distribuido, preservando o
 # repositorio completo (com testes) intacto.
-RELEASE_SCRIPTS = ('test', 'test:cnj', 'test:djen', 'test:ui',
+RELEASE_SCRIPTS = ('test', 'test:cnj', 'test:djen', 'test:coverage', 'test:ui',
                    'test:integrated', 'probe', 'probe:live')
 
 

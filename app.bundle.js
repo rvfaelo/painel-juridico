@@ -1,4 +1,4 @@
-/* Painel H.B v0.6.2 · bundle gerado por tools/build-app.mjs. Edite os módulos-fonte, não este arquivo. */
+/* Painel H.B v0.6.3 · bundle gerado por tools/build-app.mjs. Edite os módulos-fonte, não este arquivo. */
 (() => {
   // html-utils.js
   var escapeHTML = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -599,7 +599,7 @@
   }
 
   // core.js
-  var VERSION = "0.6.2";
+  var VERSION = "0.6.3";
   function taskView(tasks2, query2 = "", filter2 = "open") {
     if (!["open", "done", "all"].includes(filter2)) throw Error("Filtro de tarefas inválido.");
     const fold2 = (v) => String(v ?? "").normalize("NFD").replace(new RegExp("\\p{M}", "gu"), "").toLocaleLowerCase("pt-BR");
@@ -2314,6 +2314,7 @@
 
   // changelog.js
   var CHANGELOG = Object.freeze([
+    { version: "0.6.3", date: "2026-11-07", title: "Confiabilidade do scan e do pipeline", summary: "Congela o scan de movimentações com golden master, remove estilos inline do CSP e mede cobertura com testes de UI no CI.", changes: ["Adiciona harness de regressão do scan com fixtures DataJud/DJEN e comparação exata do golden master.", "Cobre parse DataJud, consulta DJEN e deduplicação no Store em testes Python.", "Remove os dois últimos estilos inline e passa style-src para self, sem unsafe-inline.", "Adiciona test:coverage com limites mínimos e job de UI/integração no CI."] },
     { version: "0.6.2", date: "2026-11-06", title: "Consolidação e qualidade do pacote", summary: "Remove Playwright do lock de release, centraliza a renovação de sessão, modulariza actions/views, divide validateBackup e adiciona lint, snapshots e CI.", changes: ["Remove Playwright também do package-lock do release e valida npm ci --dry-run no smoke.", "Centraliza a renovação de sessão para GET/HEAD com no máximo uma nova tentativa.", "Atualiza licenças dos conectores Python e remove código morto sem alterar o bundle.", "Separa handlers de action e views por domínio, com snapshots HTML byte a byte.", "Divide validateBackup em validadores com teste diferencial de mais de 500 mutações.", "Adiciona eslint/ruff, candidato de lock com hashes e workflow de CI com auditoria não bloqueante."] },
     { version: "0.6.1", date: "2026-11-06", title: "Limpeza e proteção do pacote local", summary: "Consolida helpers, remove código e estilos sem uso e reforça a API local, a CSP e o backup protegido.", changes: ["Consolida o escape de HTML e a normalização de texto em módulos compartilhados, sem alterar a saída.", "Remove código, imports e estilos sem uso e uniformiza os fins de linha dos scripts Windows.", "Mantém o pacote de release sem testes ou Playwright e valida a versão em package.json, core.js, serviço e interface.", "Exige sessão local (Origin e CSRF) também nas leituras de painel, backup, publicações, notificações, processos e certidões.", "Reescreve a checagem de Origin com tabela-verdade testada e compara o token CSRF com secrets.compare_digest.", "Remove o script inline do dashboard, serve boot-check.js próprio e retira unsafe-inline do script-src da CSP.", "Eleva o PBKDF2 do backup protegido para 600.000 iterações, mantendo a abertura de backups antigos."] },
     { version: "0.6.0", date: "2026-11-06", title: "Atualizações assinadas pelo GitHub Releases", summary: "Amplia a Central com atualização gráfica, verificação de assinatura, backup e recuperação.", changes: ["Consulta versões estáveis no repositório configurado e mostra novidades sem instalar automaticamente.", "Verifica assinatura RSA do editor, SHA-256, inventário e caminhos antes de substituir arquivos do programa.", "Preserva origem do navegador e dados locais; exige confirmação de backup do IndexedDB e cria backup SQLite consistente.", "Prepara dependências alteradas em ambiente separado, registra etapas e permite recuperar o código anterior quando o esquema é compatível."] },

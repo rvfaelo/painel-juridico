@@ -29,7 +29,7 @@ from .workspace import Workspace, WorkspaceConflict
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8766
-APP_VERSION = "0.6.2"
+APP_VERSION = "0.6.3"
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = {"/": ("dashboard.html", "text/html; charset=utf-8"),
           "/dashboard.html": ("dashboard.html", "text/html; charset=utf-8"),

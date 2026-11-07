@@ -18,7 +18,7 @@ test('changelog e versão atual estão sincronizados no pacote',async()=>{
 test('versões únicas com resumos, histórico e datas sem rede',()=>{
   assert.ok(CHANGELOG.length>=3);
   assert.equal(new Set(CHANGELOG.map(r=>r.version)).size,CHANGELOG.length);
-  assert.deepEqual(CHANGELOG.map(r=>r.version),['0.6.2','0.6.1','0.6.0','0.5.11','0.5.10','0.5.9','0.5.8','0.5.7','0.5.6','0.5.5','0.5.4','0.5.3','0.5.2','0.5.1','0.5.0','0.4.2','0.4.1','0.4.0','0.3.0','0.2.16','0.2.15','0.2.14','0.2.13','0.2.12','0.2.11','0.2.10','0.2.9','0.2.8','0.2.7','0.2.6','0.2.5','0.2.4','0.2.3','0.2.2','0.2.1','0.2.0','0.1.0']);
+  assert.deepEqual(CHANGELOG.map(r=>r.version),['0.6.3','0.6.2','0.6.1','0.6.0','0.5.11','0.5.10','0.5.9','0.5.8','0.5.7','0.5.6','0.5.5','0.5.4','0.5.3','0.5.2','0.5.1','0.5.0','0.4.2','0.4.1','0.4.0','0.3.0','0.2.16','0.2.15','0.2.14','0.2.13','0.2.12','0.2.11','0.2.10','0.2.9','0.2.8','0.2.7','0.2.6','0.2.5','0.2.4','0.2.3','0.2.2','0.2.1','0.2.0','0.1.0']);
   for(const release of CHANGELOG){
     assert.match(release.version,/^\d+\.\d+\.\d+$/);
     assert.ok(release.title.length>=5);
