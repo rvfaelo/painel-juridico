@@ -1,0 +1,63 @@
+{
+  "timed_out": false,
+  "_shards": {"failed": 0},
+  "hits": {
+    "total": {"value": 2, "relation": "eq"},
+    "hits": [
+      {
+        "_id": "rec1",
+        "_source": {
+          "numeroProcesso": "08129777920238190066",
+          "tribunal": "TJRJ",
+          "grau": "G1",
+          "sistema": {"codigo": 1, "nome": "PJe"},
+          "classe": {"nome": "Procedimento comum"},
+          "assuntos": [{"nome": "Direito Civil"}],
+          "orgaoJulgador": {"nome": "1ª Vara Cível"},
+          "dataAjuizamento": "2025-01-01",
+          "dataHoraUltimaAtualizacao": "2026-11-05T12:00:00Z",
+          "movimentos": [
+            {
+              "codigo": 1,
+              "nome": "Juntada de petição",
+              "dataHora": "2026-11-03T10:00:00Z",
+              "complementosTabelados": [
+                {"nome": "Petição", "descricao": "Inicial", "valor": "1"}
+              ]
+            },
+            {
+              "codigo": 1,
+              "nome": "Juntada de petição",
+              "dataHora": "2026-11-03T10:00:00Z",
+              "complementosTabelados": [
+                {"nome": "Petição", "descricao": "Inicial", "valor": "1"}
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "_id": "rec2",
+        "_source": {
+          "numeroProcesso": "08129777920238190066",
+          "tribunal": "TJRJ",
+          "grau": "G2",
+          "sistema": {"codigo": 2, "nome": "eproc"},
+          "classe": {"nome": "Apelação"},
+          "assuntos": [],
+          "orgaoJulgador": {"nome": "2ª Câmara Cível"},
+          "dataAjuizamento": "",
+          "dataHoraUltimaAtualizacao": "2026-11-05T13:00:00Z",
+          "movimentos": [
+            {
+              "id": "mov-2",
+              "codigo": 2,
+              "nome": "Conclusão ao relator",
+              "dataHora": "2026-11-04T11:00:00Z"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

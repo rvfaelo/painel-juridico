@@ -1,0 +1,241 @@
+{
+  "datajudPage1": {
+    "events": [
+      {
+        "id": "datajud:rec1:[\"2026-11-03T10:00:00Z\",1,\"Juntada de petição — Petição: Inicial: 1\"]",
+        "source": "datajud",
+        "kind": "movement",
+        "cnj": "08129777920238190066",
+        "date": "2026-11-03T10:00:00Z",
+        "text": "Juntada de petição — Petição: Inicial: 1",
+        "tribunal": "TJRJ",
+        "grade": "G1",
+        "sourceUpdatedAt": "2026-11-05T12:00:00Z",
+        "url": ""
+      },
+      {
+        "id": "datajud:rec1:[\"2026-11-03T10:00:00Z\",1,\"Juntada de petição — Petição: Inicial: 1\"]",
+        "source": "datajud",
+        "kind": "movement",
+        "cnj": "08129777920238190066",
+        "date": "2026-11-03T10:00:00Z",
+        "text": "Juntada de petição — Petição: Inicial: 1",
+        "tribunal": "TJRJ",
+        "grade": "G1",
+        "sourceUpdatedAt": "2026-11-05T12:00:00Z",
+        "url": ""
+      },
+      {
+        "id": "datajud:rec2:[\"2026-11-04T11:00:00Z\",2,\"Conclusão ao relator\"]",
+        "source": "datajud",
+        "kind": "movement",
+        "cnj": "08129777920238190066",
+        "date": "2026-11-04T11:00:00Z",
+        "text": "Conclusão ao relator",
+        "tribunal": "TJRJ",
+        "grade": "G2",
+        "sourceUpdatedAt": "2026-11-05T13:00:00Z",
+        "url": ""
+      }
+    ],
+    "count": 2,
+    "nextCursor": null,
+    "notFound": false,
+    "sourceUpdatedAt": "2026-11-05T13:00:00Z"
+  },
+  "datajudPage2": {
+    "events": [
+      {
+        "id": "datajud:rec2:[\"2026-11-04T11:00:00Z\",2,\"Conclusão ao relator\"]",
+        "source": "datajud",
+        "kind": "movement",
+        "cnj": "08129777920238190066",
+        "date": "2026-11-04T11:00:00Z",
+        "text": "Conclusão ao relator",
+        "tribunal": "TJRJ",
+        "grade": "G2",
+        "sourceUpdatedAt": "2026-11-05T13:00:00Z",
+        "url": ""
+      }
+    ],
+    "count": 1,
+    "nextCursor": null,
+    "notFound": false,
+    "sourceUpdatedAt": "2026-11-05T13:00:00Z"
+  },
+  "djenPage": {
+    "events": [
+      {
+        "publicationDetails": {
+          "tribunal": "TJRJ",
+          "orgao": "1ª Vara Cível",
+          "tipoComunicacao": "Intimação",
+          "ativo": true,
+          "destinatarios": [
+            {
+              "nome": "Fulano <Teste>",
+              "polo": "A"
+            }
+          ],
+          "advogados": [
+            {
+              "nome": "Advogado & Teste",
+              "numeroOab": "123456",
+              "ufOab": "RJ"
+            }
+          ]
+        },
+        "id": "djen:15",
+        "source": "djen",
+        "kind": "publication",
+        "cnj": "08129777920238190066",
+        "date": "2026-11-05",
+        "text": "Decisão & petição",
+        "tribunal": "TJRJ",
+        "body": "1ª Vara Cível",
+        "url": "https://www.cnj.jus.br/",
+        "certificateHash": "qo8LEjMv6g2sAodc5TGKzLJRmrz2A1",
+        "publicationStatus": "",
+        "sourceUpdatedAt": ""
+      },
+      {
+        "publicationDetails": {
+          "tribunal": "TJRJ",
+          "orgao": "1ª Vara Cível",
+          "tipoComunicacao": "Intimação",
+          "ativo": true
+        },
+        "id": "djen:15",
+        "source": "djen",
+        "kind": "publication",
+        "cnj": "08129777920238190066",
+        "date": "2026-11-05",
+        "text": "Decisão & petição",
+        "tribunal": "TJRJ",
+        "body": "1ª Vara Cível",
+        "url": "https://www.cnj.jus.br/",
+        "certificateHash": "qo8LEjMv6g2sAodc5TGKzLJRmrz2A1",
+        "publicationStatus": "",
+        "sourceUpdatedAt": ""
+      },
+      {
+        "publicationDetails": {
+          "tribunal": "TJRJ",
+          "orgao": "2ª Vara Cível",
+          "tipoComunicacao": "Publicação",
+          "ativo": false
+        },
+        "id": "djen:16",
+        "source": "djen",
+        "kind": "publication",
+        "cnj": "08129777920238190066",
+        "date": "2026-11-04",
+        "text": "Publicação com hash inválido",
+        "tribunal": "TJRJ",
+        "body": "2ª Vara Cível",
+        "url": "",
+        "certificateHash": "",
+        "publicationStatus": "Cancelada",
+        "sourceUpdatedAt": ""
+      }
+    ],
+    "count": 3,
+    "nextCursor": null,
+    "notFound": false
+  },
+  "mergedEvents": [
+    {
+      "id": "datajud:rec1:[\"2026-11-03T10:00:00Z\",1,\"Juntada de petição — Petição: Inicial: 1\"]",
+      "source": "datajud",
+      "kind": "movement",
+      "cnj": "08129777920238190066",
+      "caseId": "case1",
+      "date": "2026-11-03T10:00:00Z",
+      "text": "Juntada de petição — Petição: Inicial: 1",
+      "tribunal": "TJRJ",
+      "url": "",
+      "certificateHash": "",
+      "publicationStatus": "",
+      "seen": false
+    },
+    {
+      "id": "datajud:rec2:[\"2026-11-04T11:00:00Z\",2,\"Conclusão ao relator\"]",
+      "source": "datajud",
+      "kind": "movement",
+      "cnj": "08129777920238190066",
+      "caseId": "case1",
+      "date": "2026-11-04T11:00:00Z",
+      "text": "Conclusão ao relator",
+      "tribunal": "TJRJ",
+      "url": "",
+      "certificateHash": "",
+      "publicationStatus": "",
+      "seen": false
+    },
+    {
+      "id": "djen:15",
+      "source": "djen",
+      "kind": "publication",
+      "cnj": "08129777920238190066",
+      "caseId": "case1",
+      "date": "2026-11-05",
+      "text": "Decisão & petição",
+      "tribunal": "TJRJ",
+      "url": "https://www.cnj.jus.br/",
+      "certificateHash": "qo8LEjMv6g2sAodc5TGKzLJRmrz2A1",
+      "publicationStatus": "",
+      "seen": false
+    },
+    {
+      "id": "djen:16",
+      "source": "djen",
+      "kind": "publication",
+      "cnj": "08129777920238190066",
+      "caseId": "case1",
+      "date": "2026-11-04",
+      "text": "Publicação com hash inválido",
+      "tribunal": "TJRJ",
+      "url": "",
+      "certificateHash": "",
+      "publicationStatus": "Cancelada",
+      "seen": false
+    }
+  ],
+  "runner": {
+    "status": "success",
+    "count": 3,
+    "added": 2,
+    "cursor": null,
+    "message": "Concluído · 2 novidade(s)",
+    "events": [
+      {
+        "id": "djen:15",
+        "source": "djen",
+        "kind": "publication",
+        "cnj": "08129777920238190066",
+        "caseId": "case1",
+        "date": "2026-11-05",
+        "text": "Decisão & petição",
+        "tribunal": "TJRJ",
+        "url": "https://www.cnj.jus.br/",
+        "certificateHash": "qo8LEjMv6g2sAodc5TGKzLJRmrz2A1",
+        "publicationStatus": "",
+        "seen": false
+      },
+      {
+        "id": "djen:16",
+        "source": "djen",
+        "kind": "publication",
+        "cnj": "08129777920238190066",
+        "caseId": "case1",
+        "date": "2026-11-04",
+        "text": "Publicação com hash inválido",
+        "tribunal": "TJRJ",
+        "url": "",
+        "certificateHash": "",
+        "publicationStatus": "Cancelada",
+        "seen": false
+      }
+    ]
+  }
+}

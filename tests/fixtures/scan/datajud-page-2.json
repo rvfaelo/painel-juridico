@@ -1,0 +1,31 @@
+{
+  "timed_out": false,
+  "_shards": {"failed": 0},
+  "hits": {
+    "total": {"value": 1, "relation": "eq"},
+    "hits": [
+      {
+        "_id": "rec2",
+        "_source": {
+          "numeroProcesso": "08129777920238190066",
+          "tribunal": "TJRJ",
+          "grau": "G2",
+          "sistema": {"codigo": 2, "nome": "eproc"},
+          "classe": {"nome": "Apelação"},
+          "assuntos": [],
+          "orgaoJulgador": {"nome": "2ª Câmara Cível"},
+          "dataAjuizamento": "",
+          "dataHoraUltimaAtualizacao": "2026-11-05T13:00:00Z",
+          "movimentos": [
+            {
+              "id": "mov-2",
+              "codigo": 2,
+              "nome": "Conclusão ao relator",
+              "dataHora": "2026-11-04T11:00:00Z"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

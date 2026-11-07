@@ -1,0 +1,43 @@
+{
+  "count": 3,
+  "items": [
+    {
+      "id": 15,
+      "numero_processo": "08129777920238190066",
+      "data_disponibilizacao": "2026-11-05",
+      "texto": "<p>Decisão &amp; petição</p>",
+      "siglaTribunal": "TJRJ",
+      "nomeOrgao": "1ª Vara Cível",
+      "tipoComunicacao": "Intimação",
+      "link": "https://www.cnj.jus.br/",
+      "hash": "qo8LEjMv6g2sAodc5TGKzLJRmrz2A1",
+      "ativo": true,
+      "destinatarios": [{"nome": "Fulano <Teste>", "polo": "A"}],
+      "destinatarioadvogados": [{"advogado": {"nome": "Advogado & Teste", "numero_oab": "123456", "uf_oab": "RJ"}}]
+    },
+    {
+      "id": 15,
+      "numero_processo": "08129777920238190066",
+      "data_disponibilizacao": "2026-11-05",
+      "texto": "<p>Decisão &amp; petição</p>",
+      "siglaTribunal": "TJRJ",
+      "nomeOrgao": "1ª Vara Cível",
+      "tipoComunicacao": "Intimação",
+      "link": "https://www.cnj.jus.br/",
+      "hash": "qo8LEjMv6g2sAodc5TGKzLJRmrz2A1",
+      "ativo": true
+    },
+    {
+      "id": 16,
+      "numero_processo": "08129777920238190066",
+      "data_disponibilizacao": "2026-11-04",
+      "texto": "Publicação <script>alert(1)</script> com hash inválido",
+      "siglaTribunal": "TJRJ",
+      "nomeOrgao": "2ª Vara Cível",
+      "tipoComunicacao": "Publicação",
+      "link": "http://inseguro.example/",
+      "hash": "../outro",
+      "ativo": false
+    }
+  ]
+}
