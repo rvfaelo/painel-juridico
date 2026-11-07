@@ -1,9 +1,9 @@
-/* Painel H.B v0.6.1 · bundle gerado por tools/build-app.mjs. Edite os módulos-fonte, não este arquivo. */
+/* Painel H.B v0.6.2 · bundle gerado por tools/build-app.mjs. Edite os módulos-fonte, não este arquivo. */
 (() => {
   // html-utils.js
   var escapeHTML = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 
-  // actions/cases.js
+  // action-cases.js
   function createCaseActions(app) {
     return {
       "scheduled-owner": async ({ id }) => {
@@ -228,7 +228,7 @@
     };
   }
 
-  // actions/publications.js
+  // action-publications.js
   function createPublicationActions(app) {
     const unified = async ({ name, id }) => {
       const e = app.unifiedPublications(app.state, app.publicationEvents).find((e2) => e2.key === id);
@@ -295,7 +295,7 @@
     };
   }
 
-  // actions/backup.js
+  // action-backup.js
   function createBackupActions(app) {
     return {
       backup: async () => app.exportBackup(),
@@ -340,7 +340,7 @@
     };
   }
 
-  // actions/general.js
+  // action-general.js
   function createGeneralActions(app) {
     return {
       changelog: async () => app.showChangelog(),
@@ -355,7 +355,7 @@
     };
   }
 
-  // views/boards.js
+  // view-boards.js
   function createBoardViews(app) {
     function agendadosPanel() {
       const model = app.scheduledCases(app.state.cases, { owner: app.scheduledOwner, query: app.query, sort: app.scheduledSort, today: app.dateKey(), clientName: app.clientName });
@@ -389,7 +389,7 @@
     return { home, agendadosPanel };
   }
 
-  // views/sources.js
+  // view-sources.js
   function createSourceView(app) {
     function sourcePage() {
       return `<div class="intro-note">Fontes gratuitas. Sem assinatura, crédito pago ou contratação automática. A abrangência real precisa ser conferida nos processos da sua carteira.</div><div class="split"><section class="panel"><h2>Conexões e consultas</h2><form id="settings-form" class="settings-form"><article class="source-card"><h3>DataJud <span class="pill">Metadados e movimentos</span></h3><p>Lê a base nacional por número CNJ. Consultar novamente não força a atualização do tribunal.</p><label class="check-field"><input type="checkbox" name="datajud" ${app.state.settings.datajud ? "checked" : ""}> Incluir DataJud na atualização</label><label class="field">Chave pública do CNJ<input readonly value="${app.state.settings.datajudKey ? "••••••••" + app.esc(app.state.settings.datajudKey.slice(-4)) : "Sem chave configurada"}" aria-label="Chave pública protegida" style="background:var(--soft);color:var(--muted)"><small>A chave só muda quando você escolhe substituir ou remover.</small></label><div class="links"><button type="button" class="button secondary small" data-key-edit>${app.state.settings.datajudKey ? "Substituir chave" : "Adicionar chave"}</button>${app.state.settings.datajudKey ? '<button type="button" class="button ghost small" data-key-remove>Remover chave</button>' : ""}</div><div data-key-editor hidden><label class="field">Nova chave pública<input name="datajudKey" type="password" disabled autocomplete="off" spellcheck="false" maxlength="256"><small>Cole a chave completa. Ela será aplicada ao salvar configurações.</small></label><button type="button" class="button ghost small" data-key-cancel>Cancelar alteração da chave</button></div><p><a href="https://datajud-wiki.cnj.jus.br/api-publica/acesso/" target="_blank" rel="noopener noreferrer">Obter chave na documentação do CNJ ↗</a></p></article><article class="source-card"><h3>DJEN <span class="pill">Publicações</span></h3><p>Consulta publicações por processo ou OAB. Não representa todos os movimentos do processo.</p><label class="check-field"><input type="checkbox" name="djen" ${app.state.settings.djen ? "checked" : ""}> Incluir DJEN na atualização</label><div class="form-grid"><label class="field">Período de consulta (dias)<input type="number" min="1" max="365" name="djenDays" value="${app.state.settings.djenDays}" required></label><span></span><label class="field">Número da OAB<input name="oab" value="${app.esc(app.state.settings.oab)}" placeholder="Ex.: 123456" maxlength="9"></label><label class="field">UF da OAB<select name="ufOab"><option value="">Selecione</option>${"AC AL AP AM BA CE DF ES GO MA MT MS MG PA PB PR PE PI RJ RN RS RO RR SC SE SP TO".split(" ").map((x) => `<option ${x === app.state.settings.ufOab ? "selected" : ""}>${x}</option>`).join("")}</select></label></div></article><button class="button primary" type="submit">Salvar configurações</button><p class="form-error" id="settings-error" role="alert"></p></form></section><div>${app.schedulePanel(app.state.settings)}<section class="panel"><h2>Dados sob seu controle</h2><p class="muted">No modo integrado, cadastros, anexos e monitoramento ficam no banco local deste computador. No modo arquivo, os dados ficam neste navegador. Exporte uma cópia antes de trocar de perfil ou computador.</p><div class="links">${app.button("backup", "Exportar backup", "primary")}${app.button("restore", "Restaurar backup", "secondary")}</div><p class="warning-note">O backup pode ser protegido por senha, inclui os anexos e, no modo integrado, também o monitoramento SQLite. Guarde a senha. A restauração substitui os dados após prévia e confirmação.</p></section><section class="panel"><h2>Alcance desta versão</h2><ul class="source-limits"><li>Não há busca nacional por CPF/CNPJ.</li><li>TJSP e-SAJ é opcional; não há integração específica com PJe, eproc ou Projudi.</li><li>Não há login em JusBR/PDPJ ou acesso a peças restritas.</li><li>Não há resolução automática de CAPTCHA.</li><li>Não há consulta com navegador e computador desligados.</li><li>Consultas concluídas se referem às fontes e ao período selecionados.</li></ul><p class="muted compact">Painel H.B ${app.VERSION} · dados locais · testes de interface com respostas simuladas são distintos dos testes de conectividade.</p></section></div></div>` + app.jobsPanel();
@@ -397,7 +397,7 @@
     return { sourcePage };
   }
 
-  // views/editor.js
+  // view-editor.js
   function createEditorView(app) {
     function edit2(table, id = "", preset = {}) {
       const row = { ...preset, ...app.state[table].find((x) => x.id === id) || {} };
@@ -421,7 +421,7 @@
     return { edit: edit2 };
   }
 
-  // views/settings-events.js
+  // view-settings-events.js
   function createSettingsEvents(app) {
     function updateTimeControls2(form) {
       const enabled = form.querySelector("[name=autoUpdateEnabled]").checked;
@@ -499,7 +499,7 @@
     return { updateTimeControls: updateTimeControls2, handleClick, handleChange };
   }
 
-  // views/content.js
+  // view-content.js
   function contentHTML(app, route2) {
     return {
       home: app.home,
@@ -599,7 +599,7 @@
   }
 
   // core.js
-  var VERSION = "0.6.1";
+  var VERSION = "0.6.2";
   function taskView(tasks2, query2 = "", filter2 = "open") {
     if (!["open", "done", "all"].includes(filter2)) throw Error("Filtro de tarefas inválido.");
     const fold2 = (v) => String(v ?? "").normalize("NFD").replace(new RegExp("\\p{M}", "gu"), "").toLocaleLowerCase("pt-BR");
@@ -2314,6 +2314,7 @@
 
   // changelog.js
   var CHANGELOG = Object.freeze([
+    { version: "0.6.2", date: "2026-11-06", title: "Consolidação e qualidade do pacote", summary: "Remove Playwright do lock de release, centraliza a renovação de sessão, modulariza actions/views, divide validateBackup e adiciona lint, snapshots e CI.", changes: ["Remove Playwright também do package-lock do release e valida npm ci --dry-run no smoke.", "Centraliza a renovação de sessão para GET/HEAD com no máximo uma nova tentativa.", "Atualiza licenças dos conectores Python e remove código morto sem alterar o bundle.", "Separa handlers de action e views por domínio, com snapshots HTML byte a byte.", "Divide validateBackup em validadores com teste diferencial de mais de 500 mutações.", "Adiciona eslint/ruff, candidato de lock com hashes e workflow de CI com auditoria não bloqueante."] },
     { version: "0.6.1", date: "2026-11-06", title: "Limpeza e proteção do pacote local", summary: "Consolida helpers, remove código e estilos sem uso e reforça a API local, a CSP e o backup protegido.", changes: ["Consolida o escape de HTML e a normalização de texto em módulos compartilhados, sem alterar a saída.", "Remove código, imports e estilos sem uso e uniformiza os fins de linha dos scripts Windows.", "Mantém o pacote de release sem testes ou Playwright e valida a versão em package.json, core.js, serviço e interface.", "Exige sessão local (Origin e CSRF) também nas leituras de painel, backup, publicações, notificações, processos e certidões.", "Reescreve a checagem de Origin com tabela-verdade testada e compara o token CSRF com secrets.compare_digest.", "Remove o script inline do dashboard, serve boot-check.js próprio e retira unsafe-inline do script-src da CSP.", "Eleva o PBKDF2 do backup protegido para 600.000 iterações, mantendo a abertura de backups antigos."] },
     { version: "0.6.0", date: "2026-11-06", title: "Atualizações assinadas pelo GitHub Releases", summary: "Amplia a Central com atualização gráfica, verificação de assinatura, backup e recuperação.", changes: ["Consulta versões estáveis no repositório configurado e mostra novidades sem instalar automaticamente.", "Verifica assinatura RSA do editor, SHA-256, inventário e caminhos antes de substituir arquivos do programa.", "Preserva origem do navegador e dados locais; exige confirmação de backup do IndexedDB e cria backup SQLite consistente.", "Prepara dependências alteradas em ambiente separado, registra etapas e permite recuperar o código anterior quando o esquema é compatível."] },
     { version: "0.5.11", date: "2026-11-06", title: "Mais espaço nos processos em atenção", summary: "Melhora a separação dos cards e o acesso à carteira na página inicial.", changes: ["Organiza os cards de processos em atenção em uma lista com espaçamento consistente.", "Move Ver todos os processos para o cabeçalho como botão secundário com seta e foco de teclado."] },

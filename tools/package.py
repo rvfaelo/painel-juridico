@@ -18,8 +18,8 @@ PREFIX = 'Painel-HB/'
 
 REQUIRED = (
     'dashboard.html', 'styles.css', 'app.bundle.js', 'app.js', 'boot-check.js',
-    'actions/backup.js', 'actions/cases.js', 'actions/general.js', 'actions/publications.js',
-    'views/boards.js', 'views/content.js', 'views/editor.js', 'views/settings-events.js', 'views/sources.js',
+    'action-backup.js', 'action-cases.js', 'action-general.js', 'action-publications.js',
+    'view-boards.js', 'view-content.js', 'view-editor.js', 'view-settings-events.js', 'view-sources.js',
     'html-utils.js', 'text-utils.js',
     'CENTRAL-PAINEL-HB.cmd', 'central-painel-hb.ps1',
     'ABRIR-PAINEL.cmd', 'ABRIR-PAINEL-INTEGRADO.cmd', 'PREPARAR-SERVICO.cmd',

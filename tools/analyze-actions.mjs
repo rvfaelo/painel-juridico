@@ -10,12 +10,7 @@ const allSources = [];
 for (const name of await readdir(root)) {
   if (name.endsWith('.js') && !skip.has(name)) allSources.push(name);
 }
-const actionSources = [];
-try {
-  for (const name of await readdir(path.join(root, 'actions'))) {
-    if (name.endsWith('.js')) actionSources.push('actions/' + name);
-  }
-} catch {}
+const actionSources = allSources.filter(name => name.startsWith('action-'));
 
 const handled = new Set();
 const prefixes = new Set();
