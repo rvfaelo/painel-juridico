@@ -3,8 +3,10 @@ import {escapeHTML} from './html-utils.js';
 import {publicationDetailsHTML} from './publication-details.js';
 import {safeDateLabel} from './safe-dates.js';
 
-export function djenLookupHTML(){
-  return '<section class="datajud-lookup" aria-label="Consulta de publicações DJEN"><h3>Publicações do processo · DJEN</h3><button type="button" class="button primary small" data-action="djen-search">Buscar publicações no DJEN</button><p class="muted compact">Consulte pelo CNJ, mesmo antes de salvar o cadastro. A prévia mostra publicações dos últimos 30 dias e não altera os campos do formulário.</p><p id="djen-lookup-status" role="status" aria-live="polite"></p><div id="djen-lookup-results"></div></section>';
+export function djenLookupHTML(configuredDays=30){
+  const periods=[...new Set([30,90,180,365,Number(configuredDays)||30])].sort((a,b)=>a-b);
+  const options=periods.map(days=>`<option value="${days}" ${Number(configuredDays)===days?'selected':''}>${days} dias</option>`).join('');
+  return `<section class="datajud-lookup" aria-label="Consulta de publicações DJEN"><h3>Publicações do processo · DJEN</h3><label class="field compact-field">Período da consulta<select data-djen-days aria-label="Período da consulta rápida no DJEN">${options}</select></label><button type="button" class="button primary small" data-action="djen-search">Buscar publicações no DJEN</button><p class="muted compact">Consulte pelo CNJ, mesmo antes de salvar o cadastro. O período acima vale apenas para esta busca rápida; a atualização do processo usa o período configurado em Fontes e ajustes.</p><p id="djen-lookup-status" role="status" aria-live="polite"></p><div id="djen-lookup-results"></div></section>`;
 }
 
 export function djenPreviewHTML(events=[]){
@@ -22,6 +24,8 @@ export async function searchDjen(form,apiPost,available,days=30){
   const cnj=digits(form.elements.namedItem('cnj')?.value);
   if(!available){status.textContent='Inicie o painel integrado para consultar o DJEN.';return;}
   if(!validCnj(cnj)){status.textContent='Informe um número CNJ válido para consultar o DJEN.';return;}
+  const selected=Number(form.querySelector('[data-djen-days]')?.value);
+  if(Number.isInteger(selected)&&selected>=1&&selected<=365)days=selected;
   if(!Number.isInteger(days)||days<1||days>365)days=30;
   const token={};form._djenRequest=token;
   const button=form.querySelector('[data-action="djen-search"]');button.disabled=true;

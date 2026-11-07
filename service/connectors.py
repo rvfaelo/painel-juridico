@@ -14,6 +14,7 @@ import json
 import math
 import os
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -201,18 +202,21 @@ def _metadata(hit):
 
 
 def parse_datajud_page(payload, cnj):
-    # HTTP 200 pode ocultar timeout/falha de shards e um falso resultado vazio.
-    if payload.get("timed_out") or (payload.get("_shards") or {}).get("failed", 0):
-        raise SourceError("unavailable", "DataJud retornou busca incompleta (timeout interno ou falha de shards).",
-                          retryable=True, retry_after=10)
+    # HTTP 200 pode ocultar timeout/falha de shards. Se houver hits, eles
+    # continuam úteis como resultado parcial; sem hits, não viram "não encontrado".
+    incomplete = bool(payload.get("timed_out") or
+                      (payload.get("_shards") or {}).get("failed", 0))
     hits_block = payload.get("hits")
     if not isinstance(hits_block, dict) or not isinstance(hits_block.get("hits"), list):
         raise SourceError("incompatible", "Campo hits.hits ausente no DataJud.")
+    if incomplete and not hits_block["hits"]:
+        raise SourceError("unavailable", "DataJud retornou busca incompleta (timeout interno ou falha de shards).",
+                          retryable=True, retry_after=10)
     total_data = hits_block.get("total")
     total = total_data.get("value") if isinstance(total_data, dict) else total_data
     if not isinstance(total, int) or total < 0:
         raise SourceError("incompatible", "Contagem DataJud desconhecida.")
-    uncertain = isinstance(total_data, dict) and total_data.get("relation") == "gte"
+    uncertain = incomplete or (isinstance(total_data, dict) and total_data.get("relation") == "gte")
     tram, events = [], []
     for hit in hits_block["hits"]:
         s = hit.get("_source")
@@ -265,18 +269,34 @@ def consult_datajud(cnj, key="", requester=None):
     tram, events = [], []
     total = None
     incomplete = False
+
+    def fetch_page(page):
+        response = requester(DATAJUD_ENDPOINT + alias + "/_search",
+                             payload={"size": MAX_PAGE, "from": page * MAX_PAGE,
+                                      "track_total_hits": True, "query": {"match": {"numeroProcesso": digits(cnj)}}},
+                             headers={"Authorization": "APIKey " + key})
+        return parse_datajud_page(response, cnj)
+
     for page in range(MAX_RESULTS // MAX_PAGE):
-        try:
-            response = requester(DATAJUD_ENDPOINT + alias + "/_search",
-                                 payload={"size": MAX_PAGE, "from": page * MAX_PAGE,
-                                          "track_total_hits": True, "query": {"match": {"numeroProcesso": digits(cnj)}}},
-                                 headers={"Authorization": "APIKey " + key})
-            count, uncertain, new_tram, new_events = parse_datajud_page(response, cnj)
-        except SourceError:
-            if not tram:
-                raise
-            incomplete = True
+        parsed = None
+        for attempt in range(2):
+            try:
+                parsed = fetch_page(page)
+                break
+            except SourceError as error:
+                # A API pública é lenta e ocasionalmente devolve timeout/falha
+                # transitória. Uma nova tentativa evita transformar isso em erro
+                # definitivo na prévia; a fila persistente continua com seu backoff.
+                if attempt == 0 and page == 0 and not tram and error.retryable:
+                    time.sleep(1)
+                    continue
+                if not tram:
+                    raise
+                incomplete = True
+                break
+        if parsed is None:
             break
+        count, uncertain, new_tram, new_events = parsed
         if total is not None and count != total:
             incomplete = True
         total = count

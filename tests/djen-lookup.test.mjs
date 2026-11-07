@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {searchDjen,invalidateDjenLookup,djenPreviewHTML} from '../djen-lookup.js';
+import {searchDjen,invalidateDjenLookup,djenPreviewHTML,djenLookupHTML} from '../djen-lookup.js';
 function form(){
-  const cnj={value:'0812977-79.2023.8.19.0066'},status={textContent:''},results={innerHTML:''},button={disabled:false};
-  return {cnj,status,results,button,elements:{namedItem:()=>cnj},querySelector:s=>s.includes('status')?status:s.includes('results')?results:button};
+  const cnj={value:'0812977-79.2023.8.19.0066'},status={textContent:''},results={innerHTML:''},button={disabled:false},days={value:'30'};
+  return {cnj,status,results,button,days,elements:{namedItem:()=>cnj},querySelector:s=>s.includes('data-djen-days')?days:s.includes('status')?status:s.includes('results')?results:button};
 }
 test('DJEN: consulta CNJ ainda não salvo e mostra prévia sem modificar o formulário',async()=>{
   const f=form();let args;
@@ -22,12 +22,21 @@ test('DJEN: falha e resultado vazio são distintos',async()=>{
   await searchDjen(f,async()=>({status:'not_found',events:[]}),true);assert.match(f.status.textContent,/Nenhuma publicação/);
 });
 test('DJEN: usa período configurado e mostra as datas consultadas',async()=>{
-  const f=form();let args;
+  const f=form();let args;f.days.value='365';
   await searchDjen(f,async(...a)=>{args=a;return {status:'not_found',events:[],days:365,
     periodStart:'2025-11-08',periodEnd:'2026-11-07'};},true,365);
   assert.deepEqual(args,['djen/preview',{cnj:'08129777920238190066',days:365}]);
   assert.match(f.status.textContent,/08\/11\/2025 a 07\/11\/2026/);
   assert.match(f.status.textContent,/Nenhuma publicação/);
+});
+test('DJEN: seletor da busca rápida permite até 365 dias sem alterar a configuração',async()=>{
+  const f=form();let args;f.days.value='90';
+  await searchDjen(f,async(...a)=>{args=a;return {status:'not_found',events:[],days:90,
+    periodStart:'2026-08-09',periodEnd:'2026-11-07'};},true,30);
+  assert.deepEqual(args,['djen/preview',{cnj:'08129777920238190066',days:90}]);
+  assert.match(f.status.textContent,/09\/08\/2026 a 07\/11\/2026/);
+  assert.match(djenLookupHTML(30),/data-djen-days/);
+  assert.match(djenLookupHTML(30),/>365 dias</);
 });
 test('DJEN: conteúdo externo e links inseguros não são executados',()=>{
   const html=djenPreviewHTML([{text:'<script>alert(1)</script>',url:'javascript:alert(1)',occurredAt:'2026-11-05'}]);

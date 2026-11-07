@@ -50,10 +50,16 @@ class ScanRegressionTests(unittest.TestCase):
         for broken in (
             {**payload, "timed_out": True},
             {**payload, "_shards": {"failed": 1}},
-            {**payload, "hits": {"total": {"value": "2", "relation": "eq"}, "hits": []}},
         ):
             with self.assertRaisesRegex(Exception, "incompleta|desconhecida"):
-                parse_datajud_page(broken, CNJ)
+                parse_datajud_page({**broken, "hits": {"total": {"value": 0}, "hits": []}}, CNJ)
+            total, uncertain, tramitations, events = parse_datajud_page(broken, CNJ)
+            self.assertEqual(total, 2)
+            self.assertTrue(uncertain)
+            self.assertEqual(len(tramitations), 2)
+            self.assertEqual(len(events), 3)
+        with self.assertRaisesRegex(Exception, "desconhecida"):
+            parse_datajud_page({**payload, "hits": {"total": {"value": "2", "relation": "eq"}, "hits": []}}, CNJ)
         with self.assertRaisesRegex(Exception, "divergente"):
             parse_datajud_page(payload, "00000000000000000000")
 

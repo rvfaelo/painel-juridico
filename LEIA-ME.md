@@ -1,4 +1,4 @@
-# Painel H.B — Painel Jurídico Local 0.6.5
+# Painel H.B — Painel Jurídico Local 0.6.6
 
 **Planilha do escritório com Tribunal, Processo, Autor, Réu, Ação, Audiência e Hora:**
 o importador reconhece essas sete colunas automaticamente, preserva as partes

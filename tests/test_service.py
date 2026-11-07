@@ -90,12 +90,36 @@ class OriginMatrixTests(unittest.TestCase):
 
 class CNJTests(unittest.TestCase):
     def test_datajud_http_200_incompleto_nao_significa_nao_encontrado(self):
+        number = cnj()
+        hit = {"_id": "example", "_source": {"numeroProcesso": number, "tribunal": "TJRJ",
+               "grau": "G1", "movimentos": []}}
         for flags in ({"timed_out": True}, {"_shards": {"failed": 1}}):
-            for hits in ([], [{"_id": "example"}]):
-                with self.subTest(flags=flags, hits=hits), self.assertRaises(SourceError) as caught:
-                    parse_datajud_page({**flags, "hits": {"total": 0, "hits": hits}}, cnj())
-                self.assertEqual(caught.exception.status, "unavailable")
-                self.assertTrue(caught.exception.retryable)
+            with self.subTest(flags=flags), self.assertRaises(SourceError) as caught:
+                parse_datajud_page({**flags, "hits": {"total": 0, "hits": []}}, number)
+            self.assertEqual(caught.exception.status, "unavailable")
+            self.assertTrue(caught.exception.retryable)
+            total, uncertain, tram, events = parse_datajud_page(
+                {**flags, "hits": {"total": {"value": 1, "relation": "eq"}, "hits": [hit]}}, number)
+            self.assertEqual((total, uncertain, len(tram), len(events)), (1, True, 1, 0))
+
+    def test_datajud_retenta_uma_vez_incompleto_sem_dados(self):
+        number = cnj()
+        response_payload = {"hits": {"total": {"value": 1, "relation": "eq"}, "hits": [{
+            "_id": "retry", "_source": {"numeroProcesso": number, "tribunal": "TJRJ",
+            "grau": "G1", "movimentos": []}}]}}
+        calls = []
+
+        def requester(url, payload=None, headers=None):
+            calls.append(url)
+            if len(calls) == 1:
+                raise SourceError("unavailable", "busca incompleta", retryable=True)
+            return response_payload
+
+        with patch("service.connectors.time.sleep") as sleep:
+            result = consult_datajud(number, requester=requester)
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(len(calls), 2)
+        sleep.assert_called_once_with(1)
 
     def test_timeout_datajud_independente_do_djen_e_sem_retry_lento(self):
         with patch("urllib.request.OpenerDirector.open", side_effect=TimeoutError) as request:
@@ -108,11 +132,11 @@ class CNJTests(unittest.TestCase):
                 json_request("https://api-publica.datajud.cnj.jus.br/api_publica_tjrj/_search")
             request.assert_not_called()
 
-    def test_datajud_429_respeita_retry_after_mas_504_nao_repete(self):
+    def test_datajud_429_e_504_respeitam_retry_after(self):
         import httpx
         from service.datajud_mcp import request_datajud
         url = "https://api-publica.datajud.cnj.jus.br/api_publica_tjrj/_search"
-        for code, retry in [(429, True), (504, False)]:
+        for code, retry in [(429, True), (504, True)]:
             response = httpx.Response(code, headers={"Retry-After": "30"}, request=httpx.Request("POST", url))
             error = httpx.HTTPStatusError("test", request=response.request, response=response)
             with self.subTest(code=code), patch("httpx.AsyncClient.request", side_effect=error):

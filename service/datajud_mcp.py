@@ -60,7 +60,8 @@ def request_datajud(url, *, payload=None, headers=None, timeout=120):
             pass
         status = "auth_required" if code == 401 else "access_denied" if code == 403 else "unavailable"
         raise SourceError(status, f"Cliente MCP: fonte respondeu HTTP {code}.",
-                          retryable=code == 429 or code in (500, 502, 503), retry_after=retry_after) from None
+                          retryable=code == 429 or code in (500, 502, 503, 504),
+                          retry_after=retry_after) from None
     except (httpx.RequestError, TimeoutError):
         raise SourceError("unavailable", f"Cliente MCP: conexao ou tempo de espera esgotado (limite {timeout} s).") from None
     except (ValueError, UnicodeError):
