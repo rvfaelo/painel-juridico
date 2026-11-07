@@ -461,13 +461,10 @@ export function enqueueOab(state,options={}) {
   return 1;
 }
 export const backup = state => ({format:'pauta-backup',version:2,createdAt:now(),state:{...structuredClone(state),jobs:state.jobs.map(x=>['queued','running'].includes(x.status)?{...x,status:'interrupted',needsManualRetry:true,leaseUntil:0,message:'Pendente no momento do backup. Revise e repita manualmente; não há retomada automática após restauração.'}:x),settings:{...state.settings,datajudKey:''}}});
-export function validateBackup(value) {
-  if(value?.format!=='pauta-backup'||![1,2].includes(value.version)||![1,2].includes(value.state?.schemaVersion))throw Error('Arquivo não é um backup Pauta compatível.');
-  const s=migrateState(structuredClone(value.state));
-  if(!s.settings||typeof s.settings!=='object'||Array.isArray(s.settings))throw Error('Configurações inválidas no backup.');
-  if(typeof s.settings.datajud!=='boolean'||typeof s.settings.djen!=='boolean'||!Number.isInteger(s.settings.djenDays)||s.settings.djenDays<1||s.settings.djenDays>365)throw Error('Fontes inválidas no backup.');
-  const text=(v,max=200000)=>typeof v==='string'&&v.length<=max;
-  const day=v=>!v||validDay(v);
+const backupText=(v,max=200000)=>typeof v==='string'&&v.length<=max;
+const backupDay=v=>!v||validDay(v);
+
+function validateBackupTables(s) {
   for(const table of TABLES) {
     if(!Array.isArray(s[table])||s[table].length>100000)throw Error('Estrutura de backup inválida: '+table);
     const ids=new Set();
@@ -476,30 +473,53 @@ export function validateBackup(value) {
       ids.add(row.id);
     }
   }
-  const caseIds=new Set(s.cases.map(x=>x.id)),caseById=new Map(s.cases.map(x=>[x.id,x])),clientIds=new Set(s.clients.map(x=>x.id)),jobById=new Map(s.jobs.map(x=>[x.id,x]));
+}
+
+function validateBackupCoverage(s,caseById,jobById) {
   if(s.coverageSamples.length>2000)throw Error('Limite de amostras de cobertura no backup excedido.');
   for(const item of s.coverageSamples){
     const c=caseById.get(item.caseId);
     const j=item.jobId?jobById.get(item.jobId):null;
     for(const [field,options] of [['court',COURTS],['courtLevel',COURT_LEVELS],['processSystem',PROCESS_SYSTEMS]]){
-      if(Object.hasOwn(item,field)&&(!text(item[field],40)||!Object.hasOwn(options,item[field])))throw Error('Classificação da amostra de cobertura inválida no backup.');
+      if(Object.hasOwn(item,field)&&(!backupText(item[field],40)||!Object.hasOwn(options,item[field])))throw Error('Classificação da amostra de cobertura inválida no backup.');
     }
-    if(!c||!validCnj(item.cnj)||!['djen','datajud'].includes(item.source)||!Object.hasOwn(COVERAGE_RESULTS,item.result)||!validDay(item.referenceDate)||item.referenceDate>dateKey()||!text(item.notes,1500)||item.notes.trim().length<12||typeof item.checkedAt!=='string'||!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(item.checkedAt)||!Number.isFinite(Date.parse(item.checkedAt))||new Date(item.checkedAt).toISOString()!==item.checkedAt||item.jobId!==''&&(!j||j.caseId!==item.caseId||j.cnj!==item.cnj||j.source!==item.source||!['success','not_found','error','action','interrupted'].includes(j.status))||['match','difference'].includes(item.result)&&!['success','not_found'].includes(j?.status))throw Error('Amostra de cobertura inválida no backup.');
+    if(!c||!validCnj(item.cnj)||!['djen','datajud'].includes(item.source)||!Object.hasOwn(COVERAGE_RESULTS,item.result)||!validDay(item.referenceDate)||item.referenceDate>dateKey()||!backupText(item.notes,1500)||item.notes.trim().length<12||typeof item.checkedAt!=='string'||!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(item.checkedAt)||!Number.isFinite(Date.parse(item.checkedAt))||new Date(item.checkedAt).toISOString()!==item.checkedAt||item.jobId!==''&&(!j||j.caseId!==item.caseId||j.cnj!==item.cnj||j.source!==item.source||!['success','not_found','error','action','interrupted'].includes(j.status))||['match','difference'].includes(item.result)&&!['success','not_found'].includes(j?.status))throw Error('Amostra de cobertura inválida no backup.');
   }
-  for(const c of s.clients)if(!text(c.name,180)||!c.name.trim()||!text(c.phone||'',40)||!text(c.email||'',180)||!text(c.notes||'',4000))throw Error('Cliente inválido no backup.');
+}
+
+function validateBackupClients(s) {
+  for(const c of s.clients)if(!backupText(c.name,180)||!c.name.trim()||!backupText(c.phone||'',40)||!backupText(c.email||'',180)||!backupText(c.notes||'',4000))throw Error('Cliente inválido no backup.');
+}
+
+function validateBackupPendingItems(c) {
+  if(c.pendingItems===undefined)return;
+  if(!Array.isArray(c.pendingItems)||c.pendingItems.length>80)throw Error('Pendências do processo inválidas no backup.');
+  const pendingIds=new Set();
+  for(const item of c.pendingItems){
+    if(!item||typeof item.id!=='string'||!item.id||pendingIds.has(item.id)||!backupText(item.title,240)||!item.title.trim()||typeof item.done!=='boolean'||!backupText(item.createdAt,40)||!Number.isFinite(Date.parse(item.createdAt))||!backupText(item.completedAt,40)||item.completedAt&&!Number.isFinite(Date.parse(item.completedAt))||item.done!==!!item.completedAt)throw Error('Pendência inválida no backup.');
+    pendingIds.add(item.id);
+  }
+}
+
+function validateBackupManualChecks(c) {
+  if(c.manualChecks===undefined)return;
+  if(!Array.isArray(c.manualChecks)||c.manualChecks.length>500)throw Error('Histórico de conferência manual inválido.');
+  const ids=new Set();
+  for(const item of c.manualChecks){
+    const legacy=item?.court===undefined;
+    const sourceOk=legacy?(validCnj(item.cnj)&&digits(item.cnj).slice(13,16)==='819'&&Object.hasOwn(JUDICIAL_SYSTEMS,item.source)&&!!item.source):(MANUAL_COURT_SOURCES[item.court]?.includes(item.source)&&typeof item.cnj==='string'&&(!item.cnj||validCnj(item.cnj))&&backupText(item.docketNumber,100)&&(!!item.docketNumber||!!item.cnj));
+    if(!item||typeof item!=='object'||typeof item.id!=='string'||!item.id||ids.has(item.id)||!sourceOk||!Object.hasOwn(MANUAL_CHECK_RESULTS,item.result)||!backupText(item.notes,2000)||(['change','attention','unavailable'].includes(item.result)&&!item.notes.trim())||typeof item.checkedAt!=='string'||!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(item.checkedAt)||!Number.isFinite(Date.parse(item.checkedAt))||new Date(item.checkedAt).toISOString()!==item.checkedAt)throw Error('Registro de conferência manual inválido no backup.');
+    ids.add(item.id);
+  }
+}
+
+function validateBackupCases(s,clientIds) {
   const cnjs=new Set(),superiorRegisters=new Set();
   for(const c of s.cases) {
-    if(!text(c.title,240)||!c.title||!STAGES[c.stage]||!text(c.cnj||'',20)||(c.cnj&&!validCnj(c.cnj))||!day(c.review)||!text(c.notes||'',4000))throw Error('Processo inválido no backup.');
-    if(c.nextStep!==undefined&&!text(c.nextStep,500)||c.workOwner!==undefined&&!Object.hasOwn(WORK_OWNERS,c.workOwner)||c.workStatus!==undefined&&!Object.hasOwn(WORK_STATUSES,c.workStatus)||c.reviewedAt!==undefined&&c.reviewedAt!==''&&(!text(c.reviewedAt,40)||!Number.isFinite(Date.parse(c.reviewedAt))||!/^\d{4}-\d\d-\d\dT/.test(c.reviewedAt)))throw Error('Acompanhamento do processo inválido no backup.');
-    if(c.pendingItems!==undefined){
-      if(!Array.isArray(c.pendingItems)||c.pendingItems.length>80)throw Error('Pendências do processo inválidas no backup.');
-      const pendingIds=new Set();
-      for(const item of c.pendingItems){
-        if(!item||typeof item.id!=='string'||!item.id||pendingIds.has(item.id)||!text(item.title,240)||!item.title.trim()||typeof item.done!=='boolean'||!text(item.createdAt,40)||!Number.isFinite(Date.parse(item.createdAt))||!text(item.completedAt,40)||item.completedAt&&!Number.isFinite(Date.parse(item.completedAt))||item.done!==!!item.completedAt)throw Error('Pendência inválida no backup.');
-        pendingIds.add(item.id);
-      }
-    }
-    if((c.plaintiff!==undefined&&!text(c.plaintiff,400))||(c.defendant!==undefined&&!text(c.defendant,400)))throw Error('Partes do processo inválidas no backup.');
+    if(!backupText(c.title,240)||!c.title||!STAGES[c.stage]||!backupText(c.cnj||'',20)||(c.cnj&&!validCnj(c.cnj))||!backupDay(c.review)||!backupText(c.notes||'',4000))throw Error('Processo inválido no backup.');
+    if(c.nextStep!==undefined&&!backupText(c.nextStep,500)||c.workOwner!==undefined&&!Object.hasOwn(WORK_OWNERS,c.workOwner)||c.workStatus!==undefined&&!Object.hasOwn(WORK_STATUSES,c.workStatus)||c.reviewedAt!==undefined&&c.reviewedAt!==''&&(!backupText(c.reviewedAt,40)||!Number.isFinite(Date.parse(c.reviewedAt))||!/^\d{4}-\d\d-\d\dT/.test(c.reviewedAt)))throw Error('Acompanhamento do processo inválido no backup.');
+    validateBackupPendingItems(c);
+    if((c.plaintiff!==undefined&&!backupText(c.plaintiff,400))||(c.defendant!==undefined&&!backupText(c.defendant,400)))throw Error('Partes do processo inválidas no backup.');
     if(c.datajudDetails!==undefined&&c.datajudDetails!==null&&!validDatajudDetails(c.datajudDetails,c.cnj))throw Error('Metadados DataJud inválidos no backup.');
     if(c.judicialSystem!==undefined&&(!Object.hasOwn(JUDICIAL_SYSTEMS,c.judicialSystem)||c.judicialSystem&&(!c.cnj||c.cnj.slice(13,16)!=='819')))throw Error('Sistema judicial inválido no backup.');
     try{
@@ -511,16 +531,7 @@ export function validateBackup(value) {
     }
     catch{throw Error('Vínculo ou classificação judicial inválida no backup.');}
     if(c.manualCheckedAt!==undefined&&c.manualCheckedAt!==''&&(typeof c.manualCheckedAt!=='string'||!Number.isFinite(Date.parse(c.manualCheckedAt))||!/^\d{4}-\d\d-\d\dT/.test(c.manualCheckedAt)))throw Error('Data da conferência manual inválida no backup.');
-    if(c.manualChecks!==undefined){
-      if(!Array.isArray(c.manualChecks)||c.manualChecks.length>500)throw Error('Histórico de conferência manual inválido.');
-      const ids=new Set();
-      for(const item of c.manualChecks){
-        const legacy=item?.court===undefined;
-        const sourceOk=legacy?(validCnj(item.cnj)&&digits(item.cnj).slice(13,16)==='819'&&Object.hasOwn(JUDICIAL_SYSTEMS,item.source)&&!!item.source):(MANUAL_COURT_SOURCES[item.court]?.includes(item.source)&&typeof item.cnj==='string'&&(!item.cnj||validCnj(item.cnj))&&text(item.docketNumber,100)&&(!!item.docketNumber||!!item.cnj));
-        if(!item||typeof item!=='object'||typeof item.id!=='string'||!item.id||ids.has(item.id)||!sourceOk||!Object.hasOwn(MANUAL_CHECK_RESULTS,item.result)||!text(item.notes,2000)||(['change','attention','unavailable'].includes(item.result)&&!item.notes.trim())||typeof item.checkedAt!=='string'||!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(item.checkedAt)||!Number.isFinite(Date.parse(item.checkedAt))||new Date(item.checkedAt).toISOString()!==item.checkedAt)throw Error('Registro de conferência manual inválido no backup.');
-        ids.add(item.id);
-      }
-    }
+    validateBackupManualChecks(c);
     if(c.cnj&&cnjs.has(c.cnj))throw Error('CNJ duplicado no backup.');
     if(c.cnj)cnjs.add(c.cnj);
     if(['stj','stf'].includes(c.court)&&c.docketNumber){
@@ -530,12 +541,18 @@ export function validateBackup(value) {
     }
     if(c.clientId&&!clientIds.has(c.clientId))throw Error('Vínculo de cliente ausente.');
   }
+}
+
+function validateBackupCaseLinks(s,caseIds) {
   for(const table of ['tasks','appointments','fees','events','jobs'])for(const row of s[table])if(row.caseId&&!caseIds.has(row.caseId))throw Error('Vínculo de processo ausente.');
+}
+
+function validateBackupTasks(s,caseById) {
   const usedManualChecks=new Set();
   for(const t of s.tasks){
-    if(!text(t.title,240)||!t.title||!STAGES[t.stage]||!day(t.due))throw Error('Tarefa inválida.');
+    if(!backupText(t.title,240)||!t.title||!STAGES[t.stage]||!backupDay(t.due))throw Error('Tarefa inválida.');
     if(t.manualCheckId!==undefined){
-      if(!text(t.manualCheckId,100))throw Error('Origem da tarefa inválida.');
+      if(!backupText(t.manualCheckId,100))throw Error('Origem da tarefa inválida.');
       if(t.manualCheckId){
         const source=caseById.get(t.caseId);
         if(!source?.manualChecks?.some(x=>x.id===t.manualCheckId)||usedManualChecks.has(t.manualCheckId))throw Error('Vínculo da conferência na tarefa inválido.');
@@ -543,34 +560,88 @@ export function validateBackup(value) {
       }
     }
   }
-  for(const a of s.appointments)if(!text(a.title,240)||!a.title||!validDateTime(a.when))throw Error('Compromisso inválido.');
+}
+
+function validateBackupAppointments(s) {
+  for(const a of s.appointments)if(!backupText(a.title,240)||!a.title||!validDateTime(a.when))throw Error('Compromisso inválido.');
+}
+
+function validateBackupFees(s) {
   for(const f of s.fees)if(!Number.isSafeInteger(f.amount)||!Number.isSafeInteger(f.paid)||f.amount<=0||f.paid<0||f.paid>f.amount)throw Error('Honorário inválido.');
-  for(const f of s.fees)if(!text(f.title,240)||!f.title||!day(f.due))throw Error('Honorário inválido.');
-  const feeIds=new Set(s.fees.map(f=>f.id)),paymentById=new Map(s.payments.map(p=>[p.id,p])),paidByFee=new Map(s.fees.map(f=>[f.id,0]));
+  for(const f of s.fees)if(!backupText(f.title,240)||!f.title||!backupDay(f.due))throw Error('Honorário inválido.');
+}
+
+function validateBackupPayments(s,feeIds,paidByFee) {
   for(const p of s.payments){
-    if(!feeIds.has(p.feeId)||!['receipt','reversal'].includes(p.kind)||!Number.isSafeInteger(p.amount)||p.amount<=0||!validDay(p.date)||!text(p.notes||'',4000))throw Error('Recebimento inválido no backup.');
+    if(!feeIds.has(p.feeId)||!['receipt','reversal'].includes(p.kind)||!Number.isSafeInteger(p.amount)||p.amount<=0||!validDay(p.date)||!backupText(p.notes||'',4000))throw Error('Recebimento inválido no backup.');
     paidByFee.set(p.feeId,paidByFee.get(p.feeId)+(p.kind==='reversal'?-p.amount:p.amount));
   }
+}
+
+function validateBackupReversals(s,paymentById) {
   const reversed=new Set();
   for(const p of s.payments)if(p.kind==='reversal'){
     const original=paymentById.get(p.reverses);
     if(!original||original.kind!=='receipt'||original.feeId!==p.feeId||original.amount!==p.amount||p.date<original.date||reversed.has(original.id))throw Error('Estorno inválido no backup.');reversed.add(original.id);
   }
+}
+
+function validateBackupFeeBalance(s,paidByFee) {
   for(const f of s.fees)if(paidByFee.get(f.id)!==f.paid)throw Error('Saldo financeiro inconsistente no backup.');
-  for(const d of s.documents)if(!caseIds.has(d.caseId)||!text(d.name,200)||!d.name||!text(d.mime,80)||d.createdAt!==undefined&&!validStoredDate(d.createdAt)||!Number.isInteger(d.size)||d.size<=0||d.size>5*1024*1024||!/^([a-f0-9]{64})$/.test(d.sha256||''))throw Error('Anexo inválido no backup.');
-  for(const j of s.jobs)if(!JOB_STATES.includes(j.status)||!['datajud','djen'].includes(j.source)||!text(j.updatedAt,40)||Number.isNaN(Date.parse(j.updatedAt))||j.needsManualRetry!==undefined&&typeof j.needsManualRetry!=='boolean')throw Error('Consulta inválida.');
+}
+
+function validateBackupDocuments(s,caseIds) {
+  for(const d of s.documents)if(!caseIds.has(d.caseId)||!backupText(d.name,200)||!d.name||!backupText(d.mime,80)||d.createdAt!==undefined&&!validStoredDate(d.createdAt)||!Number.isInteger(d.size)||d.size<=0||d.size>5*1024*1024||!/^([a-f0-9]{64})$/.test(d.sha256||''))throw Error('Anexo inválido no backup.');
+}
+
+function validateBackupJobs(s) {
+  for(const j of s.jobs)if(!JOB_STATES.includes(j.status)||!['datajud','djen'].includes(j.source)||!backupText(j.updatedAt,40)||Number.isNaN(Date.parse(j.updatedAt))||j.needsManualRetry!==undefined&&typeof j.needsManualRetry!=='boolean')throw Error('Consulta inválida.');
+}
+
+function validateBackupJobPeriods(s) {
   for(const j of s.jobs){
     for(const k of ['periodStart','periodEnd'])if(j[k]!==undefined&&j[k]!==''&&!validDay(j[k]))throw Error('Período de consulta inválido no backup.');
     if(j.periodStart&&j.periodEnd&&j.periodStart>j.periodEnd)throw Error('Período de consulta invertido no backup.');
   }
+}
+
+function validateBackupEvents(s,caseById) {
   for(const e of s.events){
-    if(!['datajud','djen'].includes(e.source)||!['movement','publication'].includes(e.kind)||!text(e.text)||!text(e.date,40)||Number.isNaN(Date.parse(e.date))||!text(e.discoveredAt,40)||Number.isNaN(Date.parse(e.discoveredAt)))throw Error('Histórico inválido.');
+    if(!['datajud','djen'].includes(e.source)||!['movement','publication'].includes(e.kind)||!backupText(e.text)||!backupText(e.date,40)||Number.isNaN(Date.parse(e.date))||!backupText(e.discoveredAt,40)||Number.isNaN(Date.parse(e.discoveredAt)))throw Error('Histórico inválido.');
     if(e.caseId&&(!validCnj(e.cnj)||digits(e.cnj)!==caseById.get(e.caseId)?.cnj))throw Error('Histórico vinculado a outro CNJ no backup.');
   }
+}
+
+function finalizeBackup(s) {
   const result=structuredClone(s);
   result.settings={...emptyState().settings,...s.settings,datajudKey:''};
   result.jobs=result.jobs.map(x=>({...x,status:['queued','running'].includes(x.status)?'interrupted':x.status}));
   return result;
+}
+
+export function validateBackup(value) {
+  if(value?.format!=='pauta-backup'||![1,2].includes(value.version)||![1,2].includes(value.state?.schemaVersion))throw Error('Arquivo não é um backup Pauta compatível.');
+  const s=migrateState(structuredClone(value.state));
+  if(!s.settings||typeof s.settings!=='object'||Array.isArray(s.settings))throw Error('Configurações inválidas no backup.');
+  if(typeof s.settings.datajud!=='boolean'||typeof s.settings.djen!=='boolean'||!Number.isInteger(s.settings.djenDays)||s.settings.djenDays<1||s.settings.djenDays>365)throw Error('Fontes inválidas no backup.');
+  validateBackupTables(s);
+  const caseIds=new Set(s.cases.map(x=>x.id)),caseById=new Map(s.cases.map(x=>[x.id,x])),clientIds=new Set(s.clients.map(x=>x.id)),jobById=new Map(s.jobs.map(x=>[x.id,x]));
+  validateBackupCoverage(s,caseById,jobById);
+  validateBackupClients(s);
+  validateBackupCases(s,clientIds);
+  validateBackupCaseLinks(s,caseIds);
+  validateBackupTasks(s,caseById);
+  validateBackupAppointments(s);
+  validateBackupFees(s);
+  const feeIds=new Set(s.fees.map(f=>f.id)),paymentById=new Map(s.payments.map(p=>[p.id,p])),paidByFee=new Map(s.fees.map(f=>[f.id,0]));
+  validateBackupPayments(s,feeIds,paidByFee);
+  validateBackupReversals(s,paymentById);
+  validateBackupFeeBalance(s,paidByFee);
+  validateBackupDocuments(s,caseIds);
+  validateBackupJobs(s);
+  validateBackupJobPeriods(s);
+  validateBackupEvents(s,caseById);
+  return finalizeBackup(s);
 }
 export function overview(state) {
   return {expected:state.fees.reduce((n,f)=>n+f.amount,0),received:state.fees.reduce((n,f)=>n+f.paid,0),balance:state.fees.reduce((n,f)=>n+f.amount-f.paid,0),unseen:state.events.filter(x=>!x.seen).length};
