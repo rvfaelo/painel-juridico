@@ -3,6 +3,358 @@
   // html-utils.js
   var escapeHTML = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 
+  // actions/cases.js
+  function createCaseActions(app) {
+    return {
+      "scheduled-owner": async ({ id }) => {
+        if (id === "all" || Object.hasOwn(app.WORK_OWNERS, id)) {
+          app.scheduledOwner = id;
+          app.scheduledPage = 1;
+          return app.render();
+        }
+        throw Error("Filtro de responsável inválido.");
+      },
+      "scheduled-prev": async ({ name }) => {
+        app.scheduledPage = Math.max(1, app.scheduledPage + (name === "scheduled-next" ? 1 : -1));
+        return app.render();
+      },
+      "scheduled-next": async ({ name }) => {
+        app.scheduledPage = Math.max(1, app.scheduledPage + (name === "scheduled-next" ? 1 : -1));
+        return app.render();
+      },
+      "workflow-viewed": async ({ id }) => {
+        await app.change((s) => app.markCaseReviewed(s, id));
+        if (app.$("#editor").open && app.$("#workflow-form")?.dataset.id === id) {
+          const y = app.$("#editor").scrollTop;
+          app.fullDetail(id);
+          app.$("#editor").scrollTop = y;
+        }
+        return app.toast("Processo marcado como visto hoje (controle interno).");
+      },
+      "workflow-pending-remove": async ({ id, caseId }) => {
+        if (!caseId) throw Error("Processo da pendência não identificado.");
+        await app.change((s) => app.removeCasePending(s, caseId, id));
+        if (app.$("#editor").open && app.state.cases.some((c) => c.id === caseId)) {
+          const y = app.$("#editor").scrollTop;
+          app.fullDetail(caseId);
+          app.$("#editor").scrollTop = y;
+        }
+        return app.toast("Pendência removida da ficha.");
+      },
+      "djen-process": async ({ id }) => {
+        await app.update([id], ["djen"]);
+        return app.fullDetail(id);
+      },
+      detail: async ({ id }) => app.fullDetail(id),
+      "copy-cnj": async ({ id }) => {
+        const c = app.state.cases.find((c2) => c2.id === id), info = app.officialConsultation(c);
+        if (!info?.number) throw Error("Número CNJ válido não disponível para copiar.");
+        await navigator.clipboard.writeText(info.number);
+        return app.toast("Número CNJ copiado.");
+      },
+      "copy-docket": async ({ id }) => {
+        const c = app.state.cases.find((c2) => c2.id === id), info = app.officialConsultation(c);
+        if (!info?.docket) throw Error("Registro adicional indisponível.");
+        await navigator.clipboard.writeText(info.docket);
+        return app.toast("Registro adicional copiado.");
+      },
+      "manual-check": async ({ id }) => app.manualCheckDialog(id),
+      payments: async ({ id }) => app.paymentDialog(id),
+      "reverse-payment": async ({ id }) => {
+        const p2 = app.state.payments.find((p3) => p3.id === id);
+        return app.dialog("Estornar recebimento", `<p>O lançamento original de ${app.money(p2.amount)} continuará no histórico.</p><form id="reversal-form" data-id="${app.esc(id)}"><div class="form-grid">${app.field("Data do estorno", "date", app.dateKey(), "date", false, "required")}${app.area("Motivo obrigatório", "notes")}</div><p class="form-error" role="alert"></p><div class="form-actions"><button type="button" class="button ghost" data-action="close">Cancelar</button><button type="submit" class="button danger">Confirmar estorno</button></div></form>`);
+      },
+      attach: async ({ id }) => app.attachDocument(id),
+      "download-document": async ({ id }) => {
+        const d = app.state.documents.find((d2) => d2.id === id), blob = await app.readDocument(id), url = URL.createObjectURL(blob), a = document.createElement("a");
+        a.href = url;
+        a.download = d.name;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 5e3);
+        return;
+      },
+      "remove-document": async ({ id }) => {
+        const d = app.state.documents.find((d2) => d2.id === id);
+        return app.dialog("Remover anexo", `<p class="private">${app.esc(d.name)}</p><div class="notice">O arquivo será removido deste banco local. Cópias em backups já exportados permanecerão disponíveis.</div>${app.button("confirm-remove-document", "Confirmar remoção", "danger", id)}`);
+      },
+      "confirm-remove-document": async ({ id }) => {
+        const d = app.state.documents.find((d2) => d2.id === id);
+        if (!d) return;
+        await app.removeDocument(id);
+        await app.refresh(true);
+        app.fullDetail(d.caseId);
+        app.toast("Anexo removido.");
+        return;
+      },
+      "new-task-for": async ({ id }) => app.edit("tasks", "", { caseId: id }),
+      "task-from-check": async ({ id }) => {
+        const c = app.state.cases.find((c2) => (c2.manualChecks || []).some((x) => x.id === id && app.sameManualIdentity(c2, x)));
+        const check = c?.manualChecks.find((x) => x.id === id);
+        if (!check || !["attention", "change", "unavailable"].includes(check.result)) throw Error("Conferência não encontrada ou sem pendência.");
+        const linked = app.state.tasks.find((t) => t.caseId === c.id && t.manualCheckId === check.id);
+        if (linked) return app.edit("tasks", linked.id);
+        return app.edit("tasks", "", { caseId: c.id, manualCheckId: check.id, title: "Conferir resultado da consulta processual", notes: `Conferência manual em ${app.timestamp(check.checkedAt)} no ${app.PROCESS_SYSTEMS[check.source] || app.JUDICIAL_SYSTEMS[check.source] || "portal oficial"}: ${app.MANUAL_CHECK_RESULTS[check.result]}. ${check.notes}` });
+      },
+      "retry-source": async ({ id }) => {
+        const response = await app.send("retry-source", { jobId: id });
+        app.toast(response.count ? "Nova consulta adicionada para esta fonte." : "Essa fonte já está em consulta.");
+        return app.refresh(true);
+      },
+      "retry-oab": async ({ id }) => {
+        const response = await app.send("retry-oab", { jobId: id });
+        app.toast(response.count ? "Busca por OAB adicionada novamente à fila." : "Esta OAB já está em consulta.");
+        return app.refresh(true);
+      },
+      "open-sources": async () => {
+        location.hash = "#sources";
+        return;
+      },
+      "task-filter": async ({ id }) => {
+        if (!["open", "done", "all"].includes(id)) return;
+        app.taskFilter = id;
+        app.render();
+        document.querySelector(`[data-action="task-filter"][data-id="${id}"]`)?.focus();
+        return;
+      },
+      "filter-active": async ({ name }) => {
+        app.filter = name.slice(7);
+        app.selected.clear();
+        return app.render();
+      },
+      "filter-archived": async ({ name }) => {
+        app.filter = name.slice(7);
+        app.selected.clear();
+        return app.render();
+      },
+      "clear-case-filters": async () => {
+        app.caseCourtFilter = "";
+        app.caseLevelFilter = "";
+        app.caseSystemFilter = "";
+        app.selected.clear();
+        return app.render();
+      },
+      "update-selected": async () => app.update([...app.selected]),
+      "archive-selected": async ({ name }) => {
+        const ids = [...app.selected], archived = name === "archive-selected";
+        await app.change((s) => {
+          for (const c of s.cases) if (ids.includes(c.id)) c.archived = archived;
+        }, archived ? "Processos arquivados." : "Processos desarquivados.");
+        app.selected.clear();
+        return app.render();
+      },
+      "unarchive-selected": async ({ name }) => {
+        const ids = [...app.selected], archived = name === "archive-selected";
+        await app.change((s) => {
+          for (const c of s.cases) if (ids.includes(c.id)) c.archived = archived;
+        }, archived ? "Processos arquivados." : "Processos desarquivados.");
+        app.selected.clear();
+        return app.render();
+      },
+      "delete-selected": async () => {
+        app.pendingDeletion = [...app.selected];
+        const impact = app.caseDeletionImpact(app.state, app.pendingDeletion);
+        const blocked = impact.attachments || impact.samples || impact.manualChecks;
+        return app.dialog("Deletar " + impact.cases.length + " processo(s)", `<p class="subheading">${impact.cases.slice(0, 6).map((c) => `<span class="private">${app.esc(c.title)}</span>`).join(" · ")}${impact.cases.length > 6 ? " · outros " + (impact.cases.length - 6) : ""}</p><p class="notice">Deletar remove os cadastros selecionados da carteira. Não remove publicações, consultas, tarefas, compromissos nem honorários: vínculos serão desvinculados. A exclusão não é desfeita por “Desarquivar”. Faça backup antes.</p><p class="muted compact">Vínculos preservados: ${impact.tasks} tarefa(s), ${impact.appointments} compromisso(s), ${impact.fees} honorário(s), ${impact.events} evento(s) e ${impact.jobs} consulta(s).</p>${blocked ? `<p class="warning-note" role="alert">Exclusão bloqueada para não perder ${impact.attachments} anexo(s), ${impact.samples} comparação(ões) ou ${impact.manualChecks} conferência(s) manual(is). Remova anexos individualmente; para processos com conferências ou comparações, utilize Arquivar.</p>` : '<p class="warning-note">O título, observações e demais dados exclusivos da ficha serão excluídos. O histórico do serviço integrado será mantido.</p>'}<div class="form-actions"><button type="button" class="button ghost" data-action="close">Cancelar</button>${blocked ? "" : app.button("confirm-delete-selected", "Confirmar exclusão", "danger")}</div>`);
+      },
+      "confirm-delete-selected": async () => {
+        if (!app.pendingDeletion?.length) throw Error("Nenhum processo selecionado para exclusão.");
+        const ids = app.pendingDeletion;
+        await app.mutate((s) => app.deleteCases(s, ids));
+        app.pendingDeletion = null;
+        app.selected.clear();
+        app.$("#editor").close();
+        await app.refresh(true);
+        if (app.integrated && app.serviceOnline) await app.syncBrowser(app.state, true, app.state.cases.length === 0);
+        return app.toast(ids.length + " processo(s) removido(s) da carteira. Históricos vinculados preservados.");
+      },
+      "update-one": async ({ id }) => {
+        app.$("#editor").close();
+        return app.update([id]);
+      },
+      archive: async ({ id }) => {
+        await app.change((s) => {
+          const c = s.cases.find((c2) => c2.id === id);
+          if (c) c.archived = !c.archived;
+        }, "Arquivo atualizado.");
+        app.selected.delete(id);
+        if (app.$("#editor").open) app.$("#editor").close();
+        return;
+      },
+      "complete-task": async ({ id }) => app.change((s) => {
+        const t = s.tasks.find((t2) => t2.id === id);
+        if (t) t.stage = t.stage === "done" ? "todo" : "done";
+      }, "Tarefa atualizada."),
+      seen: async ({ id }) => {
+        await app.change((s) => {
+          const e = s.events.find((e2) => e2.id === id);
+          if (e) e.seen = !e.seen;
+        });
+        if (app.$("#editor").open && app.state.events.find((e) => e.id === id)?.caseId) app.fullDetail(app.state.events.find((e) => e.id === id).caseId);
+        return;
+      },
+      "register-event": async ({ id }) => {
+        const e = app.state.events.find((e2) => e2.id === id);
+        if (!e || !app.validCnj(e.cnj)) throw Error("Publicação sem CNJ válido.");
+        const existing = app.state.cases.find((c) => c.cnj === e.cnj);
+        return existing ? app.fullDetail(existing.id) : app.edit("cases", "", { cnj: e.cnj, title: "Processo " + app.formatCnj(e.cnj) });
+      },
+      "reconcile-events": async () => {
+        let count = 0;
+        await app.change((s) => {
+          count = app.reconcileEventLinks(s);
+        });
+        return app.toast(count ? `${count} publicação(ões) e movimentação(ões) vinculadas ou corrigidas pelo CNJ.` : "Todos os vínculos por CNJ já estão atualizados.");
+      },
+      oab: async () => {
+        const result = await app.send("oab");
+        app.toast(result.count ? "Busca de publicações adicionada à fila." : "Esta OAB já está na fila.");
+        return app.refresh(true);
+      },
+      resume: async ({ name }) => {
+        await app.send(name);
+        return app.refresh(true);
+      },
+      cancel: async ({ name }) => {
+        await app.send(name);
+        return app.refresh(true);
+      },
+      "auto-now": async () => {
+        if (!app.integrated || !app.serviceOnline) throw Error("Inicie o Painel H.B no modo integrado para consultar os tribunais.");
+        const ids = app.state.cases.filter((c) => !c.archived && c.cnj).map((c) => c.id);
+        const result = await app.send("update", { ids });
+        app.toast(result?.count ? `${result.count} consulta(s) adicionada(s) à fila do serviço.` : "Não há novas consultas para adicionar.");
+        return app.refresh(true);
+      }
+    };
+  }
+
+  // actions/publications.js
+  function createPublicationActions(app) {
+    const unified = async ({ name, id }) => {
+      const e = app.unifiedPublications(app.state, app.publicationEvents).find((e2) => e2.key === id);
+      if (!e) throw Error("Publicação não encontrada. Atualize a lista.");
+      if (name === "unified-publication-pdf") {
+        app.downloadPublicationPdf(e);
+        return;
+      }
+      if (name === "unified-publication-official-pdf") return app.downloadOfficialCertificate(e, { integrated: e.remote, ...e.remote ? { fetcher: app.apiFetch } : {} });
+      if (name === "unified-register-event") {
+        if (!app.validCnj(e.cnj)) throw Error("CNJ inválido.");
+        const existing = app.state.cases.find((c) => c.cnj === e.cnj);
+        return existing ? app.fullDetail(existing.id) : app.edit("cases", "", { cnj: e.cnj, title: "Processo " + app.formatCnj(e.cnj) });
+      }
+      const seen = !e.seen;
+      app.publicationWriteEpoch++;
+      if (e.remote) {
+        if (seen && !e.is_new && !e.seen) {
+          for (const ref of e.serviceRefs) await app.apiPost("events/seen", { caseId: ref.caseId, source: ref.source, eventId: ref.eventId });
+        } else await app.apiPost("notifications/seen", { events: [{ id: e.id, source: e.source, cnj: e.cnj }], seen });
+      }
+      app.publicationEvents = app.publicationEvents.map((x) => app.notificationKey(x) === e.key ? { ...x, seen: Number(seen), is_new: Number(!seen) } : x);
+      if (e.localIds.length) await app.mutate((s) => {
+        for (const x of s.events) if (app.notificationKey(x) === e.key) x.seen = seen;
+      });
+      app.notificationCenter.lastFetch = 0;
+      void app.notificationCenter.refresh(true);
+      await app.refresh(true);
+      app.toast(seen ? "Publicação conferida." : "Conferência desmarcada.");
+      return;
+    };
+    return {
+      "djen-search": async () => app.searchDjen(app.$("#entity-form"), app.apiPost, app.integrated && app.serviceOnline),
+      "datajud-search": async () => app.searchDatajud(app.$("#entity-form"), app.apiPost, app.integrated && app.serviceOnline),
+      "datajud-apply": async () => app.applyDatajudSelection(app.$("#entity-form")),
+      "refresh-publications": async () => app.refreshPublications(true),
+      "publication-seen": async (ctx) => unified(ctx),
+      "unified-publication-official-pdf": async (ctx) => unified(ctx),
+      "unified-publication-pdf": async (ctx) => unified(ctx),
+      "unified-register-event": async (ctx) => unified(ctx),
+      "publication-filter": async ({ id }) => {
+        if (!Object.hasOwn(app.PUBLICATION_FILTERS, id)) throw Error("Filtro de publicações inválido.");
+        app.publicationFilter = id;
+        app.publicationLimit = app.PUBLICATION_BATCH_SIZE;
+        app.render();
+        document.querySelector(`[data-action="publication-filter"][data-id="${id}"]`)?.focus();
+        return;
+      },
+      "publication-more": async () => {
+        app.publicationLimit += app.PUBLICATION_BATCH_SIZE;
+        return app.render();
+      },
+      "publication-pdf": async ({ id }) => {
+        const publication = app.state.events.find((e) => e.id === id && e.kind === "publication");
+        if (!publication) throw Error("Publicação não encontrada para exportar.");
+        app.downloadPublicationPdf(publication);
+        return;
+      },
+      "publication-official-pdf": async ({ id }) => {
+        const publication = app.state.events.find((e) => e.id === id && e.kind === "publication");
+        if (!publication) throw Error("Publicação não encontrada para baixar certidão.");
+        return app.downloadOfficialCertificate(publication, { integrated: false });
+      }
+    };
+  }
+
+  // actions/backup.js
+  function createBackupActions(app) {
+    return {
+      backup: async () => app.exportBackup(),
+      "backup-readiness": async () => app.exportBackup(),
+      restore: async () => app.chooseBackup(),
+      "import-cnj": async () => app.importDialog(),
+      "import-spreadsheet": async () => app.spreadsheetFileDialog(),
+      "sheet-back": async () => {
+        if (!app.pendingSheetPlan) return app.spreadsheetFileDialog();
+        return app.spreadsheetMappingDialog(app.pendingWorkbook.sheets.indexOf(app.pendingSheetPlan.sheet));
+      },
+      "confirm-import": async () => {
+        if (!app.pendingImport?.length) return;
+        const numbers = app.pendingImport;
+        await app.change((s) => {
+          for (const n of numbers) if (!s.cases.some((c) => c.cnj === n)) app.saveEntity(s, "cases", { cnj: n, title: "Processo " + app.formatCnj(n), stage: "todo" });
+        }, "Importação concluída.");
+        app.pendingImport = null;
+        app.$("#editor").close();
+        return;
+      },
+      "download-sheet-report": async () => {
+        if (!app.pendingSheetPlan?.plan) throw Error("Prévia da importação não encontrada.");
+        app.downloadCsv(app.exportImportReportCsv(app.pendingSheetPlan.plan), "Painel-HB-relatorio-importacao-" + app.dateKey() + ".csv");
+        return app.toast("Relatório completo baixado. Contém dados da planilha e não tem senha.");
+      },
+      "template-csv": async () => {
+        app.downloadCsv(app.portfolioTemplateCsv(), "Painel-HB-modelo-carteira.csv");
+        return app.toast("Modelo vazio gerado. Edite as colunas e mantenha o CNJ como texto.");
+      },
+      "export-portfolio": async () => app.exportPortfolioDialog(),
+      "confirm-export-portfolio": async () => {
+        app.downloadCsv(app.exportPortfolioCsv(app.state), "Painel-HB-carteira-" + app.dateKey() + ".csv");
+        app.$("#editor").close();
+        return app.toast("Carteira exportada. Este CSV não substitui o backup com senha.");
+      },
+      "audit-local": async () => app.showLocalAudit(),
+      "audit-readiness": async () => app.showLocalAudit(),
+      "source-diagnostics": async () => app.showSourceDiagnostics(),
+      "source-readiness": async () => app.showSourceDiagnostics(),
+      "coverage-new": async () => app.coverageDialog()
+    };
+  }
+
+  // actions/general.js
+  function createGeneralActions(app) {
+    return {
+      changelog: async () => app.showChangelog(),
+      close: async () => {
+        app.pendingRestore = null;
+        app.pendingEncrypted = null;
+        app.pendingWorkbook = null;
+        app.pendingSheetPlan = null;
+        app.pendingDeletion = null;
+        return app.$("#editor").close();
+      }
+    };
+  }
+
   // panel-organization.js
   var settingsView = "Fontes";
   var work = ["agendados", "tasks", "agenda"];
@@ -5458,309 +5810,207 @@
     toast(r.count ? `${r.count} consulta(s) adicionada(s). Acompanhe os resultados na ficha do processo.` : "Nenhuma consulta adicionada: confira as fontes habilitadas ou consultas já na fila.");
     await refresh(true);
   }
+  var actionApp = {
+    get state() {
+      return state;
+    },
+    set state(value) {
+      state = value;
+    },
+    get selected() {
+      return selected;
+    },
+    set selected(value) {
+      selected = value;
+    },
+    get filter() {
+      return filter;
+    },
+    set filter(value) {
+      filter = value;
+    },
+    get taskFilter() {
+      return taskFilter;
+    },
+    set taskFilter(value) {
+      taskFilter = value;
+    },
+    get scheduledOwner() {
+      return scheduledOwner;
+    },
+    set scheduledOwner(value) {
+      scheduledOwner = value;
+    },
+    get scheduledPage() {
+      return scheduledPage;
+    },
+    set scheduledPage(value) {
+      scheduledPage = value;
+    },
+    get publicationFilter() {
+      return publicationFilter;
+    },
+    set publicationFilter(value) {
+      publicationFilter = value;
+    },
+    get publicationLimit() {
+      return publicationLimit;
+    },
+    set publicationLimit(value) {
+      publicationLimit = value;
+    },
+    get publicationEvents() {
+      return publicationEvents;
+    },
+    set publicationEvents(value) {
+      publicationEvents = value;
+    },
+    get publicationWriteEpoch() {
+      return publicationWriteEpoch;
+    },
+    set publicationWriteEpoch(value) {
+      publicationWriteEpoch = value;
+    },
+    get pendingRestore() {
+      return pendingRestore;
+    },
+    set pendingRestore(value) {
+      pendingRestore = value;
+    },
+    get pendingEncrypted() {
+      return pendingEncrypted;
+    },
+    set pendingEncrypted(value) {
+      pendingEncrypted = value;
+    },
+    get pendingWorkbook() {
+      return pendingWorkbook;
+    },
+    set pendingWorkbook(value) {
+      pendingWorkbook = value;
+    },
+    get pendingSheetPlan() {
+      return pendingSheetPlan;
+    },
+    set pendingSheetPlan(value) {
+      pendingSheetPlan = value;
+    },
+    get pendingDeletion() {
+      return pendingDeletion;
+    },
+    set pendingDeletion(value) {
+      pendingDeletion = value;
+    },
+    get pendingImport() {
+      return pendingImport;
+    },
+    set pendingImport(value) {
+      pendingImport = value;
+    },
+    get caseCourtFilter() {
+      return caseCourtFilter;
+    },
+    set caseCourtFilter(value) {
+      caseCourtFilter = value;
+    },
+    get caseLevelFilter() {
+      return caseLevelFilter;
+    },
+    set caseLevelFilter(value) {
+      caseLevelFilter = value;
+    },
+    get caseSystemFilter() {
+      return caseSystemFilter;
+    },
+    set caseSystemFilter(value) {
+      caseSystemFilter = value;
+    },
+    get integrated() {
+      return integrated;
+    },
+    get serviceOnline() {
+      return serviceOnline;
+    },
+    get notificationCenter() {
+      return notificationCenter;
+    },
+    $,
+    render: render2,
+    change,
+    toast,
+    update,
+    send,
+    refresh,
+    edit,
+    fullDetail,
+    dialog,
+    field,
+    area,
+    money,
+    esc: escapeHTML,
+    dateKey,
+    timestamp,
+    button,
+    manualCheckDialog,
+    paymentDialog,
+    attachDocument,
+    readDocument,
+    removeDocument,
+    officialConsultation,
+    searchDjen,
+    searchDatajud,
+    applyDatajudSelection,
+    showChangelog,
+    chooseBackup,
+    exportBackup,
+    importDialog,
+    spreadsheetFileDialog,
+    spreadsheetMappingDialog,
+    downloadCsv,
+    portfolioTemplateCsv,
+    exportPortfolioCsv,
+    exportImportReportCsv,
+    exportPortfolioDialog,
+    showLocalAudit,
+    showSourceDiagnostics,
+    coverageDialog,
+    reconcileEventLinks,
+    deleteCases,
+    caseDeletionImpact,
+    syncBrowser,
+    saveEntity,
+    unifiedPublications,
+    downloadPublicationPdf,
+    downloadOfficialCertificate,
+    apiFetch,
+    apiPost,
+    validCnj,
+    formatCnj,
+    notificationKey,
+    mutate,
+    sameManualIdentity,
+    markCaseReviewed,
+    removeCasePending,
+    refreshPublications,
+    WORK_OWNERS,
+    PROCESS_SYSTEMS,
+    JUDICIAL_SYSTEMS,
+    MANUAL_CHECK_RESULTS,
+    PUBLICATION_FILTERS,
+    PUBLICATION_BATCH_SIZE
+  };
+  var actionHandlers = {
+    ...createCaseActions(actionApp),
+    ...createPublicationActions(actionApp),
+    ...createBackupActions(actionApp),
+    ...createGeneralActions(actionApp)
+  };
   async function action(name, id, caseId = "") {
-    if (name === "scheduled-owner") {
-      if (id === "all" || Object.hasOwn(WORK_OWNERS, id)) {
-        scheduledOwner = id;
-        scheduledPage = 1;
-        return render2();
-      }
-      throw Error("Filtro de responsável inválido.");
-    }
-    if (name === "scheduled-prev" || name === "scheduled-next") {
-      scheduledPage = Math.max(1, scheduledPage + (name === "scheduled-next" ? 1 : -1));
-      return render2();
-    }
-    if (name === "workflow-viewed") {
-      await change((s) => markCaseReviewed(s, id));
-      if ($("#editor").open && $("#workflow-form")?.dataset.id === id) {
-        const y = $("#editor").scrollTop;
-        fullDetail(id);
-        $("#editor").scrollTop = y;
-      }
-      return toast("Processo marcado como visto hoje (controle interno).");
-    }
-    if (name === "workflow-pending-remove") {
-      if (!caseId) throw Error("Processo da pendência não identificado.");
-      await change((s) => removeCasePending(s, caseId, id));
-      if ($("#editor").open && state.cases.some((c) => c.id === caseId)) {
-        const y = $("#editor").scrollTop;
-        fullDetail(caseId);
-        $("#editor").scrollTop = y;
-      }
-      return toast("Pendência removida da ficha.");
-    }
-    if (name === "djen-search") return searchDjen($("#entity-form"), apiPost, integrated && serviceOnline);
-    if (name === "djen-process") {
-      await update([id], ["djen"]);
-      return fullDetail(id);
-    }
-    if (name === "datajud-search") return searchDatajud($("#entity-form"), apiPost, integrated && serviceOnline);
-    if (name === "datajud-apply") return applyDatajudSelection($("#entity-form"));
-    if (name === "changelog") return showChangelog();
+    const handler = actionHandlers[name];
+    if (handler) return handler({ name, id, caseId });
     if (name.startsWith("new-") && ["clients", "cases", "tasks", "appointments", "fees"].includes(name.slice(4))) return edit(name.slice(4));
     if (name.startsWith("edit-")) return edit(name.slice(5), id);
-    if (name === "detail") return fullDetail(id);
-    if (name === "copy-cnj") {
-      const c = state.cases.find((c2) => c2.id === id), info = officialConsultation(c);
-      if (!info?.number) throw Error("Número CNJ válido não disponível para copiar.");
-      await navigator.clipboard.writeText(info.number);
-      return toast("Número CNJ copiado.");
-    }
-    if (name === "copy-docket") {
-      const c = state.cases.find((c2) => c2.id === id), info = officialConsultation(c);
-      if (!info?.docket) throw Error("Registro adicional indisponível.");
-      await navigator.clipboard.writeText(info.docket);
-      return toast("Registro adicional copiado.");
-    }
-    if (name === "manual-check") return manualCheckDialog(id);
-    if (name === "close") {
-      pendingRestore = null;
-      pendingEncrypted = null;
-      pendingWorkbook = null;
-      pendingSheetPlan = null;
-      pendingDeletion = null;
-      return $("#editor").close();
-    }
-    if (name === "payments") return paymentDialog(id);
-    if (name === "reverse-payment") {
-      const p2 = state.payments.find((p3) => p3.id === id);
-      return dialog("Estornar recebimento", `<p>O lançamento original de ${money(p2.amount)} continuará no histórico.</p><form id="reversal-form" data-id="${escapeHTML(id)}"><div class="form-grid">${field("Data do estorno", "date", dateKey(), "date", false, "required")}${area("Motivo obrigatório", "notes")}</div><p class="form-error" role="alert"></p><div class="form-actions"><button type="button" class="button ghost" data-action="close">Cancelar</button><button type="submit" class="button danger">Confirmar estorno</button></div></form>`);
-    }
-    if (name === "attach") return attachDocument(id);
-    if (name === "download-document") {
-      const d = state.documents.find((d2) => d2.id === id), blob = await readDocument(id), url = URL.createObjectURL(blob), a = document.createElement("a");
-      a.href = url;
-      a.download = d.name;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 5e3);
-      return;
-    }
-    if (name === "remove-document") {
-      const d = state.documents.find((d2) => d2.id === id);
-      return dialog("Remover anexo", `<p class="private">${escapeHTML(d.name)}</p><div class="notice">O arquivo será removido deste banco local. Cópias em backups já exportados permanecerão disponíveis.</div>${button("confirm-remove-document", "Confirmar remoção", "danger", id)}`);
-    }
-    if (name === "confirm-remove-document") {
-      const d = state.documents.find((d2) => d2.id === id);
-      if (!d) return;
-      await removeDocument(id);
-      await refresh(true);
-      fullDetail(d.caseId);
-      toast("Anexo removido.");
-      return;
-    }
-    if (name === "new-task-for") return edit("tasks", "", { caseId: id });
-    if (name === "task-from-check") {
-      const c = state.cases.find((c2) => (c2.manualChecks || []).some((x) => x.id === id && sameManualIdentity(c2, x)));
-      const check = c?.manualChecks.find((x) => x.id === id);
-      if (!check || !["attention", "change", "unavailable"].includes(check.result)) throw Error("Conferência não encontrada ou sem pendência.");
-      const linked = state.tasks.find((t) => t.caseId === c.id && t.manualCheckId === check.id);
-      if (linked) return edit("tasks", linked.id);
-      return edit("tasks", "", { caseId: c.id, manualCheckId: check.id, title: "Conferir resultado da consulta processual", notes: `Conferência manual em ${timestamp(check.checkedAt)} no ${PROCESS_SYSTEMS[check.source] || JUDICIAL_SYSTEMS[check.source] || "portal oficial"}: ${MANUAL_CHECK_RESULTS[check.result]}. ${check.notes}` });
-    }
-    if (name === "retry-source") {
-      const response = await send("retry-source", { jobId: id });
-      toast(response.count ? "Nova consulta adicionada para esta fonte." : "Essa fonte já está em consulta.");
-      return refresh(true);
-    }
-    if (name === "retry-oab") {
-      const response = await send("retry-oab", { jobId: id });
-      toast(response.count ? "Busca por OAB adicionada novamente à fila." : "Esta OAB já está em consulta.");
-      return refresh(true);
-    }
-    if (name === "open-sources") {
-      location.hash = "#sources";
-      return;
-    }
-    if (name === "task-filter") {
-      if (!["open", "done", "all"].includes(id)) return;
-      taskFilter = id;
-      render2();
-      document.querySelector(`[data-action="task-filter"][data-id="${id}"]`)?.focus();
-      return;
-    }
-    if (name === "refresh-publications") return refreshPublications(true);
-    if (name === "publication-seen" || name.startsWith("unified-")) {
-      const e = unifiedPublications(state, publicationEvents).find((e2) => e2.key === id);
-      if (!e) throw Error("Publicação não encontrada. Atualize a lista.");
-      if (name === "unified-publication-pdf") {
-        downloadPublicationPdf(e);
-        return;
-      }
-      if (name === "unified-publication-official-pdf") return downloadOfficialCertificate(e, { integrated: e.remote, ...e.remote ? { fetcher: apiFetch } : {} });
-      if (name === "unified-register-event") {
-        if (!validCnj(e.cnj)) throw Error("CNJ inválido.");
-        const existing = state.cases.find((c) => c.cnj === e.cnj);
-        return existing ? fullDetail(existing.id) : edit("cases", "", { cnj: e.cnj, title: "Processo " + formatCnj(e.cnj) });
-      }
-      const seen = !e.seen;
-      publicationWriteEpoch++;
-      if (e.remote) {
-        if (seen && !e.is_new && !e.seen) {
-          for (const ref of e.serviceRefs) await apiPost("events/seen", { caseId: ref.caseId, source: ref.source, eventId: ref.eventId });
-        } else await apiPost("notifications/seen", { events: [{ id: e.id, source: e.source, cnj: e.cnj }], seen });
-      }
-      publicationEvents = publicationEvents.map((x) => notificationKey(x) === e.key ? { ...x, seen: Number(seen), is_new: Number(!seen) } : x);
-      if (e.localIds.length) await mutate((s) => {
-        for (const x of s.events) if (notificationKey(x) === e.key) x.seen = seen;
-      });
-      notificationCenter.lastFetch = 0;
-      void notificationCenter.refresh(true);
-      await refresh(true);
-      toast(seen ? "Publicação conferida." : "Conferência desmarcada.");
-      return;
-    }
-    if (name === "publication-filter") {
-      if (!Object.hasOwn(PUBLICATION_FILTERS, id)) throw Error("Filtro de publicações inválido.");
-      publicationFilter = id;
-      publicationLimit = PUBLICATION_BATCH_SIZE;
-      render2();
-      document.querySelector(`[data-action="publication-filter"][data-id="${id}"]`)?.focus();
-      return;
-    }
-    if (name === "publication-more") {
-      publicationLimit += PUBLICATION_BATCH_SIZE;
-      return render2();
-    }
-    if (name === "publication-pdf") {
-      const publication = state.events.find((e) => e.id === id && e.kind === "publication");
-      if (!publication) throw Error("Publicação não encontrada para exportar.");
-      downloadPublicationPdf(publication);
-      return;
-    }
-    if (name === "publication-official-pdf") {
-      const publication = state.events.find((e) => e.id === id && e.kind === "publication");
-      if (!publication) throw Error("Publicação não encontrada para baixar certidão.");
-      return downloadOfficialCertificate(publication, { integrated: false });
-    }
-    if (name === "filter-active" || name === "filter-archived") {
-      filter = name.slice(7);
-      selected.clear();
-      return render2();
-    }
-    if (name === "clear-case-filters") {
-      caseCourtFilter = "";
-      caseLevelFilter = "";
-      caseSystemFilter = "";
-      selected.clear();
-      return render2();
-    }
-    if (name === "update-selected") return update([...selected]);
-    if (name === "archive-selected" || name === "unarchive-selected") {
-      const ids = [...selected], archived = name === "archive-selected";
-      await change((s) => {
-        for (const c of s.cases) if (ids.includes(c.id)) c.archived = archived;
-      }, archived ? "Processos arquivados." : "Processos desarquivados.");
-      selected.clear();
-      return render2();
-    }
-    if (name === "delete-selected") {
-      pendingDeletion = [...selected];
-      const impact = caseDeletionImpact(state, pendingDeletion);
-      const blocked = impact.attachments || impact.samples || impact.manualChecks;
-      return dialog("Deletar " + impact.cases.length + " processo(s)", `<p class="subheading">${impact.cases.slice(0, 6).map((c) => `<span class="private">${escapeHTML(c.title)}</span>`).join(" · ")}${impact.cases.length > 6 ? " · outros " + (impact.cases.length - 6) : ""}</p><p class="notice">Deletar remove os cadastros selecionados da carteira. Não remove publicações, consultas, tarefas, compromissos nem honorários: vínculos serão desvinculados. A exclusão não é desfeita por “Desarquivar”. Faça backup antes.</p><p class="muted compact">Vínculos preservados: ${impact.tasks} tarefa(s), ${impact.appointments} compromisso(s), ${impact.fees} honorário(s), ${impact.events} evento(s) e ${impact.jobs} consulta(s).</p>${blocked ? `<p class="warning-note" role="alert">Exclusão bloqueada para não perder ${impact.attachments} anexo(s), ${impact.samples} comparação(ões) ou ${impact.manualChecks} conferência(s) manual(is). Remova anexos individualmente; para processos com conferências ou comparações, utilize Arquivar.</p>` : '<p class="warning-note">O título, observações e demais dados exclusivos da ficha serão excluídos. O histórico do serviço integrado será mantido.</p>'}<div class="form-actions"><button type="button" class="button ghost" data-action="close">Cancelar</button>${blocked ? "" : button("confirm-delete-selected", "Confirmar exclusão", "danger")}</div>`);
-    }
-    if (name === "confirm-delete-selected") {
-      if (!pendingDeletion?.length) throw Error("Nenhum processo selecionado para exclusão.");
-      const ids = pendingDeletion;
-      await mutate((s) => deleteCases(s, ids));
-      pendingDeletion = null;
-      selected.clear();
-      $("#editor").close();
-      await refresh(true);
-      if (integrated && serviceOnline) await syncBrowser(state, true, state.cases.length === 0);
-      return toast(ids.length + " processo(s) removido(s) da carteira. Históricos vinculados preservados.");
-    }
-    if (name === "update-one") {
-      $("#editor").close();
-      return update([id]);
-    }
-    if (name === "backup" || name === "backup-readiness") return exportBackup();
-    if (name === "template-csv") {
-      downloadCsv(portfolioTemplateCsv(), "Painel-HB-modelo-carteira.csv");
-      return toast("Modelo vazio gerado. Edite as colunas e mantenha o CNJ como texto.");
-    }
-    if (name === "export-portfolio") return exportPortfolioDialog();
-    if (name === "download-sheet-report") {
-      if (!pendingSheetPlan?.plan) throw Error("Prévia da importação não encontrada.");
-      downloadCsv(exportImportReportCsv(pendingSheetPlan.plan), "Painel-HB-relatorio-importacao-" + dateKey() + ".csv");
-      return toast("Relatório completo baixado. Contém dados da planilha e não tem senha.");
-    }
-    if (name === "confirm-export-portfolio") {
-      downloadCsv(exportPortfolioCsv(state), "Painel-HB-carteira-" + dateKey() + ".csv");
-      $("#editor").close();
-      return toast("Carteira exportada. Este CSV não substitui o backup com senha.");
-    }
-    if (name === "audit-local" || name === "audit-readiness") return showLocalAudit();
-    if (name === "source-diagnostics" || name === "source-readiness") return showSourceDiagnostics();
-    if (name === "coverage-new") return coverageDialog();
-    if (name === "auto-now") {
-      if (!integrated || !serviceOnline) throw Error("Inicie o Painel H.B no modo integrado para consultar os tribunais.");
-      const ids = state.cases.filter((c) => !c.archived && c.cnj).map((c) => c.id);
-      const result = await send("update", { ids });
-      toast(result?.count ? `${result.count} consulta(s) adicionada(s) à fila do serviço.` : "Não há novas consultas para adicionar.");
-      return refresh(true);
-    }
-    if (name === "restore") return chooseBackup();
-    if (name === "import-cnj") return importDialog();
-    if (name === "import-spreadsheet") return spreadsheetFileDialog();
-    if (name === "sheet-back") {
-      if (!pendingSheetPlan) return spreadsheetFileDialog();
-      return spreadsheetMappingDialog(pendingWorkbook.sheets.indexOf(pendingSheetPlan.sheet));
-    }
-    if (name === "confirm-import") {
-      if (!pendingImport?.length) return;
-      const numbers = pendingImport;
-      await change((s) => {
-        for (const n of numbers) if (!s.cases.some((c) => c.cnj === n)) saveEntity(s, "cases", { cnj: n, title: "Processo " + formatCnj(n), stage: "todo" });
-      }, "Importação concluída.");
-      pendingImport = null;
-      $("#editor").close();
-      return;
-    }
-    if (name === "archive") {
-      await change((s) => {
-        const c = s.cases.find((c2) => c2.id === id);
-        if (c) c.archived = !c.archived;
-      }, "Arquivo atualizado.");
-      selected.delete(id);
-      if ($("#editor").open) $("#editor").close();
-      return;
-    }
-    if (name === "complete-task") return change((s) => {
-      const t = s.tasks.find((t2) => t2.id === id);
-      if (t) t.stage = t.stage === "done" ? "todo" : "done";
-    }, "Tarefa atualizada.");
-    if (name === "seen") {
-      await change((s) => {
-        const e = s.events.find((e2) => e2.id === id);
-        if (e) e.seen = !e.seen;
-      });
-      if ($("#editor").open && state.events.find((e) => e.id === id)?.caseId) fullDetail(state.events.find((e) => e.id === id).caseId);
-      return;
-    }
-    if (name === "register-event") {
-      const e = state.events.find((e2) => e2.id === id);
-      if (!e || !validCnj(e.cnj)) throw Error("Publicação sem CNJ válido.");
-      const existing = state.cases.find((c) => c.cnj === e.cnj);
-      return existing ? fullDetail(existing.id) : edit("cases", "", { cnj: e.cnj, title: "Processo " + formatCnj(e.cnj) });
-    }
-    if (name === "reconcile-events") {
-      let count = 0;
-      await change((s) => {
-        count = reconcileEventLinks(s);
-      });
-      return toast(count ? `${count} publicação(ões) e movimentação(ões) vinculadas ou corrigidas pelo CNJ.` : "Todos os vínculos por CNJ já estão atualizados.");
-    }
-    if (name === "oab") {
-      const result = await send("oab");
-      toast(result.count ? "Busca de publicações adicionada à fila." : "Esta OAB já está na fila.");
-      return refresh(true);
-    }
-    if (name === "resume" || name === "cancel") {
-      await send(name);
-      return refresh(true);
-    }
+    if (name.startsWith("unified-")) return actionHandlers["publication-seen"]({ name, id, caseId });
   }
   document.addEventListener("click", (event) => {
     const paging = event.target.closest("[data-case-page]");

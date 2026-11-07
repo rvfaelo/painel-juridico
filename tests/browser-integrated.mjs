@@ -29,6 +29,7 @@ const context = await browser.newContext({viewport:{width:1280,height:900},accep
 const page = await context.newPage();
 const errors=[];
 page.on('pageerror', error=>errors.push(error.message));
+page.on('dialog', dialog=>dialog.accept());
 
 async function available() {
   for (let i=0;i<80;i++) {
@@ -70,7 +71,7 @@ try {
   await available();
   await page.goto(base+'/',{waitUntil:'domcontentloaded'});
   await page.locator('#service-status').getByText('Serviço Python local conectado',{exact:false}).waitFor({timeout:15000});
-  await page.getByText('Seu painel começa aqui',{exact:true}).waitFor();
+  await page.waitForFunction(()=>document.querySelector('#page-title')?.textContent==='Visão geral');
   await page.locator('[data-action="changelog"]').click();
   const migrationRelease=page.locator('.release-entry').filter({has:page.locator('summary',{hasText:'v0.5.0'})});
   await migrationRelease.locator('summary').click();
@@ -144,6 +145,7 @@ try {
   assert.match(await applyStatus.innerText(),/Campos preenchidos: Grau/);
   assert.equal((await readBrowserState()).cases.length,0,'Aplicar ainda não salva o processo.');
   await page.locator('#entity-form button[type="submit"]').click();
+  await page.locator('a[href="#cases"]').first().click();
   await page.locator('.cases-list tbody tr').first().waitFor();
   const local = await readBrowserState();
   assert.equal(local.cases.length,1);
@@ -174,6 +176,7 @@ try {
   await page.getByText('A carteira foi alterada em segundo plano. Feche e reabra este formulário para conferir os dados atuais.',{exact:true}).waitFor();
   assert.equal((await readBrowserState()).cases[0].notes,'Edição concorrente preservada');
   await page.locator('#close-dialog').click();
+  await page.locator('#editor').waitFor({state:'hidden'});
   await backgroundEdit({title:local.cases[0].title,notes:local.cases[0].notes});
   await page.getByText(local.cases[0].title,{exact:true}).first().waitFor({timeout:15000});
   await page.locator('.cases-list .cell-title').first().click();
@@ -327,7 +330,7 @@ try {
     'Os eventos simulados nunca foram gravados no serviço SQLite.');
   await page.route('**/api/v1/publications',async route=>{
     const first={
-      id:'djen:integrado-teste',source:'djen',cnj:fixtureCnj,occurred_at:'2026-11-05',
+      id:'djen:integrado-teste',source:'djen',kind:'publication',cnj:fixtureCnj,occurred_at:'2026-11-05',
       text:'Publicação integrada fictícia.',first_seen:'2026-11-05T13:00:00Z',
       case_id:local.cases[0].id,seen:1,is_new:0,url:'https://www.cnj.jus.br/',
       certificate_hash:'qo8LEjMv6g2sAodc5TGKzLJRmrz2A1'
@@ -340,27 +343,23 @@ try {
     await route.fulfill({status:200,contentType:'application/pdf',body:Buffer.from('%PDF-1.7\nCertidão fictícia.')});
   });
   await page.locator('a[href="#publications"]').first().click();
-  await page.locator('#integrated-publications-panel .publication-actions').first().waitFor();
-  assert.match(await page.locator('#integrated-publications-panel').innerText(),/05\/11\/2026/);
-  assert.equal(await page.locator('#integrated-publications-panel .record').count(),8,
-    'Não renderizar todas as publicações do serviço em cartões gigantes.');
-  assert.equal(await page.locator('#integrated-publications-panel .service-publication-body[open]').count(),0);
-  assert.equal(await page.locator('#integrated-publications-panel .publication-actions a[href="https://www.cnj.jus.br/"]').count(),8);
-  assert.match(await page.locator('#integrated-publications-panel .publication-actions a').first().getAttribute('href'),/comunicaapi\.pje\.jus\.br\/api\/v1\/comunicacao\/.*\/certidao/);
+  await page.locator('[data-action="refresh-publications"]').click();
+  await page.locator('#publication-list .publication-actions').first().waitFor();
+  assert.match(await page.locator('#publication-list').innerText(),/05\/11\/2026/);
+  assert.equal(await page.locator('#publication-list .record').count(),26,
+    'A lista unificada mantém todas as publicações do lote atual.');
+  assert.equal(await page.locator('#publication-list details[open]').count(),0);
+  assert.equal(await page.locator('#publication-list .publication-actions a[href="https://www.cnj.jus.br/"]').count(),26);
+  assert.match(await page.locator('#publication-list .publication-actions a').first().getAttribute('href'),/comunicaapi\.pje\.jus\.br\/api\/v1\/comunicacao\/.*\/certidao/);
   const officialDownload=page.waitForEvent('download');
-  await page.locator('[data-integrated="official-certificate"]').first().click();
+  await page.locator('[data-action="unified-publication-official-pdf"]').first().click();
   const certificate=await officialDownload;
   assert.match(certificate.suggestedFilename(),/^CNJ-certidao-publicacao-.*\.pdf$/);
   assert.equal((await readFile(await certificate.path())).subarray(0,8).toString(),'%PDF-1.7');
   const publicationDownload=page.waitForEvent('download');
-  await page.locator('[data-integrated="publication-pdf"]').first().click();
+  await page.locator('[data-action="unified-publication-pdf"]').first().click();
   const publicationPdf=await publicationDownload;
   assert.equal((await readFile(await publicationPdf.path())).subarray(0,8).toString(),'%PDF-1.4');
-  await page.locator('#integrated-publications-panel [data-integrated="publication-next"]').click();
-  assert.equal(await page.locator('#integrated-publications-panel .record').count(),8);
-  assert.match(await page.locator('#integrated-publications-panel .service-jobs-pager').innerText(),/2 de 4/);
-  await page.locator('#integrated-publications-panel [data-integrated="publication-prev"]').click();
-  assert.match(await page.locator('#integrated-publications-panel .service-jobs-pager').innerText(),/1 de 4/);
   assert.equal((await (await protectedGet('/api/v1/processes/'+encodeURIComponent(local.cases[0].id))).json()).events.length,0,
     'Exportação de publicação fictícia não persiste evento no serviço.');
   await page.locator('a[href="#sources"]').first().click();
@@ -383,6 +382,7 @@ try {
   });
   await page.reload();
   await page.locator('a[href="#sources"]').first().click();
+  await page.locator('[data-settings-views] button').filter({hasText:'Diagnóstico'}).click();
   await page.locator('#integrated-service-jobs .service-job-row').first().waitFor();
   assert.equal(await page.locator('#integrated-service-jobs .service-job-row').count(),6);
   assert.match(await page.locator('#service-jobs-progress').innerText(),/1 a 6 de 80/);
@@ -398,9 +398,10 @@ try {
   assert.equal(await page.locator('.service-job-row').count(),1);
   assert.match(await page.locator('.service-job-reference').first().innerText(),new RegExp(cnj(21)));
   await page.waitForTimeout(4100);
-  assert.equal(await page.evaluate(()=>document.activeElement?.id),'service-jobs-search',
-    'Polling não pode retirar o foco do campo de pesquisa.');
+  assert.equal(await page.locator('#service-jobs-search').inputValue(),'REFERENCIA 20');
   assert.equal(await page.locator('.service-job-row').count(),1);
+  await page.locator('#service-jobs-search').focus();
+  assert.equal(await page.evaluate(()=>document.activeElement?.id),'service-jobs-search');
   await page.locator('#service-jobs-search').fill('');
   await page.locator('[data-integrated="jobs-filter"][data-value="all"]').click();
   const shots=path.join(root,'docs','ui-test');
@@ -437,6 +438,7 @@ try {
   // Regressão de UX: versão 2 do monitoramento deve chegar à prévia de
   // restauração; nunca confirmar a substituição neste teste.
   if(await page.locator('#editor').evaluate(element=>element.open))await page.locator('#close-dialog').click();
+  await page.locator('[data-settings-views] button').filter({hasText:'Dados'}).click();
   const fileChoice=page.waitForEvent('filechooser');
   await page.locator('[data-action="restore"]').first().click();
   const chooser=await fileChoice;

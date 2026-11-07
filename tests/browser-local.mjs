@@ -102,7 +102,7 @@ const waitState = async predicate => {
 
 try {
   await page.goto(pathToFileURL(path.join(root, 'dashboard.html')).href);
-  await page.getByText('Seu painel começa aqui', {exact: true}).waitFor();
+  await page.waitForFunction(()=>document.querySelector('#page-title')?.textContent==='Visão geral');
   assert.equal(await page.evaluate(() => globalThis.__PAUTA_BOOTED__), true);
   assert.equal((await readState()).cases.length, 0);
   assert.equal((await readState()).jobs.length, 0);
@@ -111,7 +111,7 @@ try {
   // Desativa o agendador antes da primeira verificação automática (5 s).
   await setSettings({autoUpdateEnabled: false});
   await page.reload();
-  await page.getByText('Seu painel começa aqui', {exact: true}).waitFor();
+  await page.waitForFunction(()=>document.querySelector('#page-title')?.textContent==='Visão geral');
 
   await page.locator('#new-record').click();
   await page.locator('#entity-form [name="title"]').fill('Caso local fictício');
@@ -186,6 +186,7 @@ try {
   tempFiles.push(restoredFile);
   await writeFile(restoredFile, JSON.stringify(decoded), 'utf8');
   await page.locator('a[href="#sources"]').first().click();
+  await page.locator('[data-settings-views] button').filter({hasText:'Dados'}).click();
   const chooserPromise = page.waitForEvent('filechooser');
   await page.locator('[data-action="restore"]').click();
   await (await chooserPromise).setFiles(restoredFile);
@@ -195,20 +196,25 @@ try {
   const restored = await waitState(state => state.cases.length === 1 && state.events.length === 0);
   assert.equal(restored.cases[0].cnj, fixtureCnj);
 
+  await page.locator('[data-settings-views] button').filter({hasText:'Automação'}).click();
   await page.locator('#auto-form').waitFor();
   const autoEnabled = page.locator('#auto-form [name="autoUpdateEnabled"]');
   if (!await autoEnabled.isChecked()) await autoEnabled.check();
-  await page.locator('#auto-form [name="autoUpdateTimes"]').fill('07:30, 19:30');
+  const timeInputs = page.locator('#auto-form [name="autoTime"]');
+  await timeInputs.nth(0).fill('07:30');
+  await timeInputs.nth(1).fill('19:30');
   await page.locator('#auto-form button[type="submit"]').click();
   const configured = await waitState(state => state.settings.autoUpdateTimes === '07:30,19:30' && state.settings.autoUpdateEnabled === true);
   assert.equal(configured.settings.autoUpdateTimes, '07:30,19:30');
-  assert.equal(await page.locator('#auto-form [name="autoUpdateTimes"]').inputValue(), '07:30, 19:30');
-  assert.match(await page.locator('#auto-form').innerText(), /Próxima prevista:/);
+  assert.equal(await timeInputs.nth(0).inputValue(), '07:30');
+  assert.equal(await timeInputs.nth(1).inputValue(), '19:30');
+  assert.match(await page.locator('#auto-form').innerText(), /Próxima consulta/);
 
   // O HTML direto nao retoma consultas deixadas por versoes antigas.
   // Somente o servico Python e responsavel por executar uma fila.
   await insertOrphanJob({caseId: restored.cases[0].id, cnj: fixtureCnj});
   await page.reload();
+  await page.locator('[data-settings-views] button').filter({hasText:'Automação'}).click();
   await page.locator('#auto-form').waitFor();
   const recovered = await readState();
   assert.equal(recovered.jobs.find(job => job.id === 'orphan-running').status, 'running');
@@ -259,12 +265,12 @@ try {
   assert.equal(await page.locator('.publication-actions a[href="https://www.cnj.jus.br/"]').count(),1);
   assert.match(await page.locator('.publication-actions a').first().getAttribute('href'),/comunicaapi\.pje\.jus\.br\/api\/v1\/comunicacao\/.*\/certidao/);
   const officialDownload=page.waitForEvent('download');
-  await page.locator('[data-action="publication-official-pdf"]').click();
+  await page.locator('[data-action="unified-publication-official-pdf"]').click();
   const certidao=await officialDownload;
   assert.match(certidao.suggestedFilename(),/^CNJ-certidao-publicacao-.*\.pdf$/);
   assert.equal((await readFile(await certidao.path())).subarray(0,8).toString(),'%PDF-1.7');
   const pdfDownload=page.waitForEvent('download');
-  await page.locator('[data-action="publication-pdf"]').first().click();
+  await page.locator('[data-action="unified-publication-pdf"]').first().click();
   const pdf=await pdfDownload;
   assert.match(pdf.suggestedFilename(),/^Painel-HB-publicacao-.*\.pdf$/);
   assert.equal((await readFile(await pdf.path())).subarray(0,8).toString(),'%PDF-1.4');
