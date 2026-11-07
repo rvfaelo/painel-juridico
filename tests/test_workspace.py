@@ -110,7 +110,7 @@ class WorkspaceTests(unittest.TestCase):
 class WorkspaceHTTPTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
-        self.server=Server(0,Store(self.temp.name))
+        self.server=Server(0,Store(self.temp.name),auth=False)
         self.port=self.server.server_address[1]
         self.server.origin=f'http://127.0.0.1:{self.port}'
         self.thread=threading.Thread(target=self.server.serve_forever,daemon=True);self.thread.start()

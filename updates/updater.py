@@ -307,10 +307,22 @@ class LocalService:
         self.identity = install_id(root)
         self.data = Path(os.getenv('PAUTA_DATA_DIR', str(Path(os.getenv('LOCALAPPDATA', str(Path.home() / '.local/share'))) / 'PautaJuridico')))
 
-    def request(self, route, body=None, csrf=''):
+    def admin_secret(self):
+        path = self.data / 'auth-admin.secret'
+        try:
+            value = path.read_text(encoding='utf-8').strip()
+        except OSError:
+            value = ''
+        return value if len(value) >= 32 else ''
+
+    def request(self, route, body=None, csrf='', admin=False):
         headers = {'Origin': ORIGIN}
         if csrf:
             headers['X-Pauta-CSRF'] = csrf
+        if admin:
+            secret = self.admin_secret()
+            if secret:
+                headers['X-Pauta-Admin'] = secret
         if body is not None:
             headers['Content-Type'] = 'application/json'
         request = urllib.request.Request(ORIGIN + '/api/v1/' + route, headers=headers,
@@ -331,15 +343,21 @@ class LocalService:
 
     def locate_data(self):
         if self.health():
-            status = self.request('status')
+            status = self.request('status', admin=True)
             self.data = Path(status['dataDirectory'])
         return self.data
 
     def stop(self):
         if not self.health():
             return
-        session = self.request('session')
-        self.request('shutdown', {}, session['csrf'])
+        try:
+            self.request('shutdown', {}, admin=True)
+        except urllib.error.HTTPError as error:
+            if error.code not in (401, 403):
+                raise
+            # Compatibilidade com a versao anterior, que ainda usa CSRF de sessao.
+            session = self.request('session')
+            self.request('shutdown', {}, session['csrf'])
         for _ in range(100):
             time.sleep(.1)
             if not self.health():

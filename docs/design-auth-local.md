@@ -1,6 +1,18 @@
-# Autenticação local do Painel H.B — desenho e plano
+# Autenticação local do Painel H.B — implementação e operação
 
-> Documento de desenho. Nenhuma mudança de autenticação foi implementada nesta etapa.
+> Implementado na versão 0.6.4. O desenho original permanece abaixo; as decisões efetivamente adotadas estão resumidas no item 0.
+
+## 0. Status da implementação
+
+- `/api/v1/session` deixou de entregar o CSRF sem sessão.
+- A Central/iniciador abre uma URL com token de bootstrap de uso único; o serviço troca o token por cookie `HttpOnly` e `SameSite=Strict` e redireciona para `/`.
+- O token expira em 120 segundos, é de uso único e nunca é registrado no log do serviço.
+- A sessão existe apenas em memória e é invalidada quando o serviço reinicia.
+- `auth-admin.secret` é criado na pasta de dados com permissão restrita (best effort `icacls` no Windows) e usado por `updates/updater.py`, `--stop` e `--status`.
+- O endpoint `/api/v1/bootstrap` é administrativo e exige `X-Pauta-Admin`.
+- `/api/v1/status`, escrita e leitura de dados exigem cookie de sessão + CSRF; `/health` continua aberto para a Central.
+- O modo `file://` continua sem autenticação HTTP e sem serviço.
+- A compatibilidade de atualização cobre a versão anterior: o updater tenta o segredo administrativo e, se receber 403, usa o CSRF de sessão antigo.
 
 ## 1. Modelo de ameaça
 

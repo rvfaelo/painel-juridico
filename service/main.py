@@ -6,9 +6,10 @@ Nunca servir a rede, aceitar Origin:null ou caminhos locais arbitrarios.
 from __future__ import annotations
 
 from datetime import datetime
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import argparse
 import importlib.util
@@ -17,6 +18,7 @@ import json
 import os
 import secrets
 import socket
+import subprocess
 import threading
 import time
 import urllib.error
@@ -24,13 +26,73 @@ import urllib.request
 import webbrowser
 
 from .connectors import CONTRACT_VERSION, SourceError, capabilities, consult_datajud, consult_djen, consult_esaj, probe_public_sources, preview_datajud, fetch_djen_certificate
-from .store import Store
+from .store import Store, data_directory
 from .workspace import Workspace, WorkspaceConflict
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8766
 APP_VERSION = "0.6.3"
 ROOT = Path(__file__).resolve().parent.parent
+SESSION_COOKIE = "pauta_session"
+SESSION_TTL = 12 * 60 * 60
+BOOTSTRAP_TTL = 120
+ADMIN_SECRET_NAME = "auth-admin.secret"
+CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+AUTH_REQUIRED_HTML = """<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Painel H.B · acesso local</title><link rel="stylesheet" href="/styles.css"></head>
+<body><main class="auth-required"><h1>Painel H.B</h1>
+<p>Abra o painel pelo atalho <strong>ABRIR-PAINEL-INTEGRADO.cmd</strong> ou pela Central.</p>
+<p class="muted">O link de acesso expirou ou esta aba foi aberta sem a sessão local. Feche esta aba e abra novamente pelo iniciador.</p>
+</main></body></html>"""
+
+
+def admin_secret_path(directory=None):
+    return Path(directory or data_directory()) / ADMIN_SECRET_NAME
+
+
+def read_admin_secret(directory=None):
+    path = admin_secret_path(directory)
+    try:
+        value = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+    return value if len(value) >= 32 else ""
+
+
+def _restrict_admin_secret(path):
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
+    if os.name != "nt":
+        return
+    try:
+        user = subprocess.check_output(["whoami"], text=True, stderr=subprocess.DEVNULL,
+                                       creationflags=CREATE_NO_WINDOW).strip()
+        if not user:
+            return
+        subprocess.run(["icacls", str(path), "/inheritance:r", "/grant:r", f"{user}:(R,W)"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       creationflags=CREATE_NO_WINDOW, check=False)
+    except OSError:
+        pass
+
+
+def load_or_create_admin_secret(directory):
+    path = admin_secret_path(directory)
+    existing = read_admin_secret(directory)
+    if existing:
+        return existing
+    value = secrets.token_urlsafe(48)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(value + "\n")
+    os.replace(temporary, path)
+    _restrict_admin_secret(path)
+    return value
 STATIC = {"/": ("dashboard.html", "text/html; charset=utf-8"),
           "/dashboard.html": ("dashboard.html", "text/html; charset=utf-8"),
           "/app.bundle.js": ("app.bundle.js", "text/javascript; charset=utf-8"),
@@ -91,7 +153,7 @@ class Server(ThreadingHTTPServer):
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
         super().server_bind()
 
-    def __init__(self, port, store=None):
+    def __init__(self, port, store=None, auth=True):
         super().__init__((HOST, port), Handler)
         # Reservar a porta antes de abrir o banco: abrir uma segunda instancia
         # nao pode invalidar a fila e respostas da instancia que ja esta rodando.
@@ -101,10 +163,56 @@ class Server(ThreadingHTTPServer):
         except Exception:
             self.server_close()
             raise
-        self.csrf = secrets.token_urlsafe(40)
+        self.auth_required = bool(auth)
         self.origin = f"http://{HOST}:{port}"
+        self.csrf = secrets.token_urlsafe(40)
+        self.sessions = {}
+        self.sessions_lock = threading.Lock()
+        self.bootstrap_tokens = {}
+        self.admin_secret = load_or_create_admin_secret(self.store.directory) if self.auth_required else ""
         self.worker = Worker(self.store, sources=("datajud", "esaj_pg", "esaj_sg"))
         self.djen_worker = Worker(self.store, sources=("djen",), schedule=False)
+
+    def create_session(self):
+        session_id = secrets.token_urlsafe(32)
+        csrf = secrets.token_urlsafe(40)
+        with self.sessions_lock:
+            self.sessions[session_id] = {"csrf": csrf, "created": time.time()}
+        return session_id, csrf
+
+    def session_csrf(self, session_id):
+        if not session_id:
+            return ""
+        with self.sessions_lock:
+            entry = self.sessions.get(session_id)
+            if not isinstance(entry, dict):
+                return entry if isinstance(entry, str) else ""
+            if time.time() - entry["created"] > SESSION_TTL:
+                self.sessions.pop(session_id, None)
+                return ""
+            return entry["csrf"]
+
+    def admin_matches(self, value):
+        return bool(self.admin_secret and value and secrets.compare_digest(value, self.admin_secret))
+
+    def issue_bootstrap(self):
+        token = secrets.token_urlsafe(32)
+        now = time.time()
+        with self.sessions_lock:
+            self.bootstrap_tokens = {key: expiry for key, expiry in self.bootstrap_tokens.items()
+                                     if expiry > now}
+            self.bootstrap_tokens[token] = now + BOOTSTRAP_TTL
+        return token
+
+    def consume_bootstrap(self, token):
+        if not token:
+            return False
+        with self.sessions_lock:
+            expiry = self.bootstrap_tokens.pop(token, None)
+        return bool(expiry and expiry >= time.time())
+
+    def bootstrap_url(self):
+        return f"{self.origin}/?bootstrap={quote(self.issue_bootstrap())}"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -132,10 +240,32 @@ class Handler(BaseHTTPRequestHandler):
         host = self.headers.get("Host", "")
         return host == self.server.origin.removeprefix("http://")
 
+    def session_id(self):
+        raw = self.headers.get("Cookie", "")
+        if not raw:
+            return ""
+        try:
+            jar = SimpleCookie()
+            jar.load(raw)
+            morsel = jar.get(SESSION_COOKIE)
+            return morsel.value if morsel else ""
+        except Exception:
+            return ""
+
+    def admin_matches(self):
+        matcher = getattr(self.server, "admin_matches", None)
+        return bool(matcher and matcher(self.headers.get("X-Pauta-Admin", "")))
+
+    def expected_csrf(self):
+        if not getattr(self.server, "auth_required", False):
+            return self.server.csrf
+        return self.server.session_csrf(self.session_id())
+
     def csrf_matches(self):
         token = self.headers.get("X-Pauta-CSRF", "")
+        expected = self.expected_csrf()
         try:
-            return secrets.compare_digest(token, self.server.csrf)
+            return bool(token and expected and secrets.compare_digest(token, expected))
         except TypeError:
             return False
 
@@ -145,7 +275,7 @@ class Handler(BaseHTTPRequestHandler):
         if origin is not None and origin != self.server.origin:
             return False
         if site in ("cross-site", "none"):
-            return site == "none" and origin is None and self.csrf_matches()
+            return site == "none" and origin is None and (self.csrf_matches() or self.admin_matches())
         return True
 
     def guard_host(self):
@@ -155,7 +285,15 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     def guard_read(self):
-        if not self.allowed_origin() or not self.csrf_matches():
+        if not self.allowed_origin():
+            self.respond({"error": "Origin nao autorizado."}, 403)
+            return False
+        if self.admin_matches():
+            return True
+        if self.server.auth_required and not self.expected_csrf():
+            self.respond({"error": "Sessão local necessária. Abra o painel pela Central."}, 401)
+            return False
+        if not self.csrf_matches():
             self.respond({"error": "Sessão local necessária."}, 403)
             return False
         return True
@@ -164,9 +302,13 @@ class Handler(BaseHTTPRequestHandler):
         if not self.allowed_origin():
             self.respond({"error": "Origin nao autorizado."}, 403)
             return False
-        if not self.csrf_matches():
-            self.respond({"error": "Sessao local expirada; recarregue o painel."}, 403)
-            return False
+        if not self.admin_matches():
+            if self.server.auth_required and not self.expected_csrf():
+                self.respond({"error": "Sessão local necessária. Abra o painel pela Central."}, 401)
+                return False
+            if not self.csrf_matches():
+                self.respond({"error": "Sessao local expirada; recarregue o painel."}, 403)
+                return False
         if self.headers.get("Content-Type", "").split(";", 1)[0].lower() != "application/json":
             self.respond({"error": "A API aceita somente JSON."}, 415)
             return False
@@ -184,7 +326,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.guard_host():
             return
-        path = urlsplit(self.path).path
+        parsed = urlsplit(self.path)
+        path = parsed.path
         try:
             if path == "/api/v1/health":
                 from .datajud_mcp import CLIENT_ID, CLIENT_COMMIT
@@ -192,12 +335,36 @@ class Handler(BaseHTTPRequestHandler):
                                      "contractVersion": CONTRACT_VERSION, "status": "ok",
                                      "installationId": hashlib.sha256(os.path.normcase(str(ROOT.resolve())).encode('utf-8')).hexdigest(),
                                      "datajudClient": CLIENT_ID, "datajudClientCommit": CLIENT_COMMIT})
+            if path in ("/", "/dashboard.html") and parsed.query:
+                token = parse_qs(parsed.query).get("bootstrap", [""])[0]
+                if token and self.server.consume_bootstrap(token):
+                    session_id, _csrf = self.server.create_session()
+                    self.send_response(302)
+                    self.send_header("Location", "/")
+                    self.send_header("Set-Cookie", f"{SESSION_COOKIE}={session_id}; HttpOnly; SameSite=Strict; Path=/; Max-Age={SESSION_TTL}")
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Referrer-Policy", "no-referrer")
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
             if os.getenv('HB_UPDATE_VALIDATION') == '1' and path not in ('/api/v1/session', '/api/v1/status'):
                 return self.respond({'error': 'Validacao de atualizacao em andamento. Aguarde a Central.'}, 503)
             if path == "/api/v1/session":
+                if not self.server.auth_required:
+                    return self.respond({"product": "pauta-local-service", "appVersion": APP_VERSION,
+                                         "contractVersion": CONTRACT_VERSION, "csrf": self.server.csrf})
+                if self.admin_matches():
+                    return self.respond({"product": "pauta-local-service", "appVersion": APP_VERSION,
+                                         "contractVersion": CONTRACT_VERSION, "csrf": "", "admin": True})
+                csrf = self.server.session_csrf(self.session_id())
+                if not csrf:
+                    return self.respond({"error": "Sessão local necessária. Abra o painel pela Central."}, 401)
                 return self.respond({"product": "pauta-local-service", "appVersion": APP_VERSION,
-                                     "contractVersion": CONTRACT_VERSION, "csrf": self.server.csrf})
+                                     "contractVersion": CONTRACT_VERSION, "csrf": csrf})
             if path == "/api/v1/status":
+                if self.server.auth_required and not self.guard_read():
+                    return
                 s = self.server.store.settings()
                 return self.respond({"appVersion": APP_VERSION, "contractVersion": CONTRACT_VERSION,
                                      "service": "online", "dataDirectory": str(self.server.store.directory),
@@ -269,8 +436,13 @@ class Handler(BaseHTTPRequestHandler):
             item = STATIC.get(path)
             if not item:
                 return self.respond({"error": "Arquivo nao disponivel."}, 404)
-            name, mime = item
-            payload = (ROOT / name).read_bytes()
+            if self.server.auth_required and path in ("/", "/dashboard.html") and not self.admin_matches() \
+                    and not self.server.session_csrf(self.session_id()):
+                mime = "text/html; charset=utf-8"
+                payload = AUTH_REQUIRED_HTML.encode("utf-8")
+            else:
+                name, mime = item
+                payload = (ROOT / name).read_bytes()
             self.send_response(200)
             self.send_header("Content-Type", mime)
             self.send_header("Content-Length", str(len(payload)))
@@ -297,6 +469,12 @@ class Handler(BaseHTTPRequestHandler):
         try:
             body = self.get_json_body()
             store = self.server.store
+            if path == "/api/v1/bootstrap":
+                if not self.admin_matches():
+                    return self.respond({"error": "Acesso administrativo local necessario."}, 403)
+                token = self.server.issue_bootstrap()
+                return self.respond({"token": token, "expiresIn": BOOTSTRAP_TTL,
+                                     "url": f"{self.server.origin}/?bootstrap={quote(token)}"})
             if path in ('/api/v1/workspace/migrate', '/api/v1/workspace/save', '/api/v1/cases/command'):
                 return self.respond(self.server.workspace.write(body,
                     migrate=path.endswith('/migrate'), command=path.endswith('/command')))
@@ -387,6 +565,16 @@ class Handler(BaseHTTPRequestHandler):
             self.respond({"error": "Operacao nao concluida; confira o banco local."}, 500)
 
 
+def _admin_headers(port, required=True):
+    secret = read_admin_secret()
+    if not secret and required:
+        raise RuntimeError("Segredo administrativo local ausente. Abra o painel pela Central.")
+    headers = {"Content-Type": "application/json", "Origin": f"http://{HOST}:{port}"}
+    if secret:
+        headers["X-Pauta-Admin"] = secret
+    return headers
+
+
 def request_status(port, method="GET", data=None):
     url = f"http://{HOST}:{port}/api/v1/"
     try:
@@ -395,10 +583,29 @@ def request_status(port, method="GET", data=None):
         if info.get("product") != "pauta-local-service":
             raise RuntimeError("Porta ocupada por outro servico.")
         if method == "STOP":
-            with urllib.request.urlopen(url + "session", timeout=2) as response:
-                session = json.load(response)
             req = urllib.request.Request(url + "shutdown", data=b"{}", method="POST",
-                headers={"Content-Type": "application/json", "X-Pauta-CSRF": session["csrf"]})
+                headers=_admin_headers(port, required=False))
+            try:
+                with urllib.request.urlopen(req, timeout=3) as response:
+                    return json.load(response)
+            except urllib.error.HTTPError as error:
+                if error.code not in (401, 403):
+                    raise
+                # Compatibilidade com a versao anterior, que usa CSRF de sessao.
+                with urllib.request.urlopen(url + "session", timeout=2) as response:
+                    session = json.load(response)
+                req = urllib.request.Request(url + "shutdown", data=b"{}", method="POST",
+                    headers={"Content-Type": "application/json", "Origin": f"http://{HOST}:{port}",
+                             "X-Pauta-CSRF": session["csrf"]})
+                with urllib.request.urlopen(req, timeout=3) as response:
+                    return json.load(response)
+        if method == "BOOTSTRAP":
+            req = urllib.request.Request(url + "bootstrap", data=b"{}", method="POST",
+                headers=_admin_headers(port))
+            with urllib.request.urlopen(req, timeout=3) as response:
+                return json.load(response)
+        if method == "STATUS":
+            req = urllib.request.Request(url + "status", headers=_admin_headers(port, required=False))
             with urllib.request.urlopen(req, timeout=3) as response:
                 return json.load(response)
         return info
@@ -419,7 +626,7 @@ def main(argv=None):
         parser.error("Porta fora do intervalo permitido.")
     if args.status or args.stop:
         try:
-            print(json.dumps(request_status(args.port, "STOP" if args.stop else "GET"), ensure_ascii=False))
+            print(json.dumps(request_status(args.port, "STOP" if args.stop else "STATUS"), ensure_ascii=False))
             return 0
         except RuntimeError as e:
             print(str(e))
@@ -440,7 +647,10 @@ def main(argv=None):
             if existing.get("appVersion") == APP_VERSION:
                 print("Painel H.B ja esta rodando nesta porta; nao foi criada outra instancia.")
                 if args.open:
-                    webbrowser.open(f"http://{HOST}:{args.port}/")
+                    try:
+                        webbrowser.open(request_status(args.port, "BOOTSTRAP")["url"])
+                    except RuntimeError:
+                        webbrowser.open(f"http://{HOST}:{args.port}/")
                 return 0
             print("Atualizando o servico local para a versao " + APP_VERSION + ".", flush=True)
             request_status(args.port, "STOP")
@@ -462,7 +672,7 @@ def main(argv=None):
         server.worker.start()
         server.djen_worker.start()
     if args.open:
-        webbrowser.open(server.origin + "/")
+        webbrowser.open(server.bootstrap_url())
     try:
         server.serve_forever(poll_interval=.5)
     except KeyboardInterrupt:

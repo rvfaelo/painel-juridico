@@ -578,7 +578,7 @@ class ApiTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.server = Server(0, Store(self.tmp.name))
+        self.server = Server(0, Store(self.tmp.name), auth=False)
         self.server.origin = f"http://127.0.0.1:{self.server.server_port}"
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()

@@ -47,29 +47,49 @@ async function available() {
   throw Error('Servico Python nao iniciou em tempo adequado: '+stderr);
 }
 
+async function adminHeaders(extra={}) {
+  for (let i=0;i<40;i++) {
+    try {
+      const value=(await readFile(path.join(temp,'auth-admin.secret'),'utf8')).trim();
+      if (value.length>=32) return {Origin:base,'X-Pauta-Admin':value,...extra};
+    } catch {}
+    await new Promise(resolve=>setTimeout(resolve,100));
+  }
+  throw Error('Segredo administrativo do servico ausente.');
+}
+
+async function adminFetch(pathname, options={}) {
+  return fetch(base+pathname,{...options,headers:await adminHeaders(options.headers||{})});
+}
+
+async function bootstrapURL() {
+  const response=await adminFetch('/api/v1/bootstrap',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:'{}'});
+  const data=await response.json();
+  if(!response.ok) throw Error('Bootstrap local recusado: '+JSON.stringify(data));
+  return data.url;
+}
+
 async function shutdown() {
   if (stopped) return;
   stopped = true;
   try {
-    const session = await (await fetch(base+'/api/v1/session')).json();
-    await fetch(base+'/api/v1/shutdown',{method:'POST',
-      headers:{'Content-Type':'application/json','X-Pauta-CSRF':session.csrf},body:'{}'});
+    await adminFetch('/api/v1/shutdown',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:'{}'});
   } catch {}
 }
 
 async function readBrowserState() {
-  const session=await (await fetch(base+'/api/v1/session')).json();
-  return (await (await fetch(base+'/api/v1/workspace',{headers:{'X-Pauta-CSRF':session.csrf}})).json()).state;
+  return (await (await adminFetch('/api/v1/workspace')).json()).state;
 }
 
 async function protectedGet(path) {
-  const session=await (await fetch(base+'/api/v1/session')).json();
-  return fetch(base+path,{headers:{'X-Pauta-CSRF':session.csrf}});
+  return adminFetch(path);
 }
 
 try {
   await available();
-  await page.goto(base+'/',{waitUntil:'domcontentloaded'});
+  await page.goto(await bootstrapURL(),{waitUntil:'domcontentloaded'});
   await page.locator('#service-status').getByText('Serviço Python local conectado',{exact:false}).waitFor({timeout:15000});
   await page.waitForFunction(()=>document.querySelector('#page-title')?.textContent==='Visão geral');
   await page.locator('[data-action="changelog"]').click();
@@ -157,11 +177,10 @@ try {
   assert.equal(local.cases[0].datajudDetails.cnj,fixtureCnj);
   assert.deepEqual(previewCalls,[fixtureCnj]);
   // Alteração pelo serviço, sem controlar a interface, aparece na aba aberta.
-  const session=(await (await fetch(base+'/api/v1/session')).json());
   async function backgroundEdit(fields){
     const current=await readBrowserState();
-    const response=await fetch(base+'/api/v1/cases/command',{method:'POST',
-      headers:{'Content-Type':'application/json','X-Pauta-CSRF':session.csrf},
+    const response=await adminFetch('/api/v1/cases/command',{method:'POST',
+      headers:{'Content-Type':'application/json'},
       body:JSON.stringify({expectedRevision:current.revision,
         command:{action:'edit',id:local.cases[0].id,fields}})});
     assert.equal(response.status,200);return response.json();
