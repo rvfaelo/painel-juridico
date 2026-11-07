@@ -78,6 +78,8 @@ with TemporaryDirectory(prefix='painel-hb-release-') as temp:
     assert 'Painel H.B' in dashboard
     assert '<script src="boot-check.js" defer></script>' in dashboard
     assert '<script>' not in dashboard
+    assert 'brand-photo' in dashboard
+    assert 'data:image/jpeg;base64,' in (install / 'styles.css').read_text(encoding='utf-8')
     assert 'case-history-pagination' in (install / 'app.bundle.js').read_text(encoding='utf-8')
 
     release_lock = json.loads((install / 'package-lock.json').read_text(encoding='utf-8'))
