@@ -1,0 +1,3 @@
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+cnj-origin-units.js text eol=lf
