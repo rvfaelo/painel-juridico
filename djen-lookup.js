@@ -7,7 +7,7 @@ export function djenLookupHTML(){
 }
 
 export function djenPreviewHTML(events=[]){
-  return events.map(e=>`<article class="record"><strong>Publicação DJEN · ${escapeHTML(e.occurredAt)}</strong>${publicationDetailsHTML(e)}<p class="private" style="white-space:pre-wrap">${escapeHTML(e.text)}</p>${/^https:\/\//i.test(e.url||'')?`<a href="${escapeHTML(e.url)}" target="_blank" rel="noopener noreferrer">Abrir publicação oficial ↗</a>`:''}</article>`).join('');
+  return events.map(e=>`<article class="record"><strong>Publicação DJEN · ${escapeHTML(e.occurredAt)}</strong>${publicationDetailsHTML(e)}<p class="private pre-wrap">${escapeHTML(e.text)}</p>${/^https:\/\//i.test(e.url||'')?`<a href="${escapeHTML(e.url)}" target="_blank" rel="noopener noreferrer">Abrir publicação oficial ↗</a>`:''}</article>`).join('');
 }
 
 export function invalidateDjenLookup(form){

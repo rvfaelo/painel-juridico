@@ -643,6 +643,8 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status, 200)
         self.assertIn("script-src 'self'", csp)
         self.assertNotIn("script-src 'self' 'unsafe-inline'", csp)
+        self.assertIn("style-src 'self'", csp)
+        self.assertNotIn("style-src 'self' 'unsafe-inline'", csp)
         self.assertIn('<script src="boot-check.js" defer></script>', dashboard)
         self.assertNotIn('<script>', dashboard)
         conn = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=3)

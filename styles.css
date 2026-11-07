@@ -474,3 +474,5 @@ dialog{overflow-y:auto;overscroll-behavior:contain}
 
 /* Organização do trabalho e dos ajustes */
 [hidden]{display:none!important}.organization-tabs{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 24px}.work-subnav{padding-left:32px;font-size:.9em}[data-settings-section]>.panel{margin-bottom:20px}.release-title,.release-foot{display:none}.release-tile{padding:10px!important}
+.protected-key{background:var(--soft);color:var(--muted)}
+.pre-wrap{white-space:pre-wrap}
