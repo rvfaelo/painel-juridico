@@ -445,7 +445,7 @@ def main(argv=None):
             print("Atualizando o servico local para a versao " + APP_VERSION + ".", flush=True)
             request_status(args.port, "STOP")
             # A porta so pode ser retomada depois que a instancia anterior encerrar.
-            for attempt in range(50):
+            for _attempt in range(50):
                 try:
                     server = Server(args.port)
                     break

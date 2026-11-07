@@ -58,7 +58,6 @@ test('retorno tardio de consulta para CNJ corrigido não contamina outro process
   const pending=step({...ctx,adapters:{djen:async()=>response}});
   for(let i=0;i<20&&ctx.s.jobs[0].status!=='running';i++)await Promise.resolve();
   assert.equal(ctx.s.jobs[0].status,'running');
-  const next='00000010620268190001';
   // Construa um CNJ válido para a correção, sem depender da numeração da fonte.
   const {cnj}=await import('./helpers.mjs');
   const changed=cnj(7,'8','19');

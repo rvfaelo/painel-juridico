@@ -216,7 +216,6 @@ export function integratedCaseHTML(info,caseId,pageState={}) {
   const items=Array.isArray(info?.events)?info.events:[];
   const track=Array.isArray(info?.tramitations)?info.tramitations.filter(x=>x.source==='datajud'):[];
   const pending=items.filter(x=>!!x.is_new&&!x.seen);
-  const previous=items.filter(x=>!x.is_new||!!x.seen);
   const movements=items.filter(x=>x.kind!=='publication').length;
   const publications=items.filter(x=>x.kind==='publication').length;
   const historyDescription=items.length>=2000?'no histórico exibido':'no histórico';

@@ -13,12 +13,6 @@ const stamp = value => {
     new Intl.DateTimeFormat('pt-BR', {dateStyle:'short', timeStyle:'short',
       timeZone:'America/Sao_Paulo'}).format(time);
 };
-const labels = {queued:'Na fila',running:'Consultando',success:'Concluído',
-  partial:'Parcial',not_found:'Não localizado',auth_required:'Autenticação necessária',
-  access_denied:'Acesso negado',unavailable:'Indisponível',unsupported:'Não suportado',
-  incompatible:'Resposta incompatível',cancelled:'Cancelado'};
-const source = key => ({datajud:'DataJud',djen:'DJEN',esaj_pg:'TJSP e-SAJ · 1º grau',
-  esaj_sg:'TJSP e-SAJ · 2º grau'})[key] || key;
 let currentCase = '';
 let caseDetailInfo=null,caseHistoryPages={};
 let serviceJobFilter='all',serviceJobSearch='',serviceJobPage=1;

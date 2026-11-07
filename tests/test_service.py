@@ -3,7 +3,6 @@ import http.client
 import io
 from contextlib import closing, redirect_stdout
 import json
-import os
 from pathlib import Path
 import sqlite3
 import tempfile
