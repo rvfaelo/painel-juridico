@@ -80,6 +80,27 @@ with TemporaryDirectory(prefix='painel-hb-release-') as temp:
     assert '<script>' not in dashboard
     assert 'case-history-pagination' in (install / 'app.bundle.js').read_text(encoding='utf-8')
 
+    release_lock = json.loads((install / 'package-lock.json').read_text(encoding='utf-8'))
+    assert release_lock['version'] == version
+    assert release_lock['packages']['']['version'] == version
+    assert 'playwright' not in release_lock['packages'][''].get('devDependencies', {})
+    assert 'node_modules/playwright' not in release_lock['packages']
+    assert 'node_modules/playwright-core' not in release_lock['packages']
+
+    npm = shutil.which('npm')
+    npm_ci = False
+    if npm:
+        result = subprocess.run(
+            [npm, 'ci', '--dry-run', '--ignore-scripts', '--no-audit', '--no-fund'],
+            cwd=install, capture_output=True, text=True, timeout=120)
+        if result.returncode != 0:
+            raise RuntimeError('npm ci --dry-run falhou no pacote: ' +
+                               (result.stderr or result.stdout)[-600:])
+        npm_ci = True
+    else:
+        print('AVISO: npm nao encontrado; npm ci --dry-run nao foi verificado.',
+              file=sys.stderr)
+
     node = shutil.which('node')
     checked = 0
     if node:
@@ -106,6 +127,7 @@ with TemporaryDirectory(prefix='painel-hb-release-') as temp:
     print(json.dumps({
         'zip_ok': True, 'servico_importavel': True,
         'js_verificados': checked, 'central_validada': bool(powershell),
+        'npm_ci_dry_run': npm_ci,
         'dados_privados': False,
         'instalacao_de_destino_nao_executada': True,
     }, ensure_ascii=False))

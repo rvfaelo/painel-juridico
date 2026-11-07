@@ -60,6 +60,22 @@ def release_bytes(path, relative):
             data.get('scripts', {}).pop(name, None)
         data.get('devDependencies', {}).pop('playwright', None)
         content = (json.dumps(data, ensure_ascii=False, indent=2) + '\n').encode('utf-8')
+    elif relative == 'package-lock.json':
+        data = json.loads(content.decode('utf-8'))
+        packages = data.get('packages', {})
+        packages.get('', {}).get('devDependencies', {}).pop('playwright', None)
+        for name in ('node_modules/playwright', 'node_modules/playwright-core'):
+            packages.pop(name, None)
+
+        def referenced(name):
+            fields = ('dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies')
+            return any(name in (package.get(field) or {})
+                       for package in packages.values() for field in fields)
+
+        # fsevents só era alcançável pelo Playwright neste lock.
+        if 'node_modules/fsevents' in packages and not referenced('fsevents'):
+            packages.pop('node_modules/fsevents')
+        content = (json.dumps(data, ensure_ascii=False, indent=2) + '\n').encode('utf-8')
     return content
 
 readme = f'''PAINEL H.B v{VERSION} - PACOTE PARA OUTRO COMPUTADOR WINDOWS
@@ -126,6 +142,15 @@ with ZipFile(ARCHIVE) as archive:
         raise RuntimeError('Script de teste/utilitario ausente do repositorio no ZIP')
     if 'playwright' in release_package.get('devDependencies', {}):
         raise RuntimeError('Dependencia de testes Playwright no ZIP')
+    release_lock = json.loads(archive.read(PREFIX + 'package-lock.json'))
+    lock_packages = release_lock.get('packages', {})
+    if (release_lock.get('version') != VERSION
+            or lock_packages.get('', {}).get('version') != VERSION):
+        raise RuntimeError('Versao do package-lock no ZIP diverge de package.json')
+    if ('playwright' in lock_packages.get('', {}).get('devDependencies', {})
+            or 'node_modules/playwright' in lock_packages
+            or 'node_modules/playwright-core' in lock_packages):
+        raise RuntimeError('Dependencia de testes Playwright no package-lock do ZIP')
     forbidden = ('node_modules/', '.venv/', 'audit-context/', 'arquivo/', 'tests/',
                  'data/', '__pycache__/', 'docs/ui-test/', '.public-datajud-key.txt')
     if any(any(part in m for part in forbidden)
