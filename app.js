@@ -35,7 +35,6 @@ import {initDatajudForm,getDatajudDraft,searchDatajud,chooseDatajudRecord,
   applyDatajudSelection,invalidateDatajudIfCnjChanged} from './datajud-prefill.js';
 import {updateCnjInference} from './cnj-inference.js';
 import {djenLookupHTML,searchDjen,invalidateDjenLookup} from './djen-lookup.js';
-import {historyPage} from './integrated-case-view.js';
 import {NotificationCenter,notificationKey} from './notifications.js';
 
 const $=selector=>document.querySelector(selector);

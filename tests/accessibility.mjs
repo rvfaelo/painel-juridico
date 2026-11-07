@@ -78,7 +78,7 @@ await page.addScriptTag({path: axePath});
 
 async function violations(label) {
   const result = await page.evaluate(async () => {
-    const report = await axe.run(document, {
+    const report = await globalThis.axe.run(document, {
       runOnly: {type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']}
     });
     return report.violations.map(item => ({id: item.id, impact: item.impact,
