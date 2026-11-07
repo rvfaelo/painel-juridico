@@ -13,28 +13,37 @@ export let serviceConnectors = [];
 export let serviceError = 'Inicie o serviço com ABRIR-PAINEL-INTEGRADO.cmd.';
 export let serviceSyncWarning = '';
 
+async function retryAfterSessionRenewal(request) {
+  const first = await request();
+  if (first.status !== 403) return first;
+  try {
+    const renewed = await fetch('/api/v1/session', {cache: 'no-store', credentials: 'same-origin'});
+    if (!renewed.ok) return first;
+    const session = await renewed.json();
+    if (!session.csrf) return first;
+    csrf = session.csrf;
+    // Uma única nova tentativa; um segundo 403 é devolvido ao chamador.
+    return await request();
+  } catch {
+    return first;
+  }
+}
+
 export async function apiFetch(path, options = {}) {
-  const headers = {...(options.headers || {})};
-  if (csrf) headers['X-Pauta-CSRF'] = csrf;
-  return fetch(path, {...options, cache: options.cache ?? 'no-store',
-    credentials: 'same-origin', headers});
+  const method = String(options.method || 'GET').toUpperCase();
+  const request = () => {
+    const headers = {...(options.headers || {})};
+    if (csrf) headers['X-Pauta-CSRF'] = csrf;
+    return fetch(path, {...options, cache: options.cache ?? 'no-store',
+      credentials: 'same-origin', headers});
+  };
+  if (method === 'GET' || method === 'HEAD') return retryAfterSessionRenewal(request);
+  return request();
 }
 
 export async function apiGet(route) {
   if (!integrated) throw Error('Serviço não conectado. Abra o Painel H.B pelo iniciador integrado.');
-  let response = await apiFetch('/api/v1/' + route);
-  if (response.status === 403 && route !== 'session') {
-    try {
-      const renewed = await fetch('/api/v1/session', {cache: 'no-store', credentials: 'same-origin'});
-      if (renewed.ok) {
-        const session = await renewed.json();
-        if (session.csrf) {
-          csrf = session.csrf;
-          response = await apiFetch('/api/v1/' + route);
-        }
-      }
-    } catch {}
-  }
+  const response = await apiFetch('/api/v1/' + route);
   const data = await response.json();
   if (!response.ok) throw Error(data.error || 'Serviço indisponível.');
   if (data.contractVersion !== undefined && data.contractVersion !== CONTRACT)

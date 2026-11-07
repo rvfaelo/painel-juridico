@@ -3357,32 +3357,38 @@
   var serviceConnectors = [];
   var serviceError = "Inicie o serviço com ABRIR-PAINEL-INTEGRADO.cmd.";
   var serviceSyncWarning = "";
+  async function retryAfterSessionRenewal(request) {
+    const first = await request();
+    if (first.status !== 403) return first;
+    try {
+      const renewed = await fetch("/api/v1/session", { cache: "no-store", credentials: "same-origin" });
+      if (!renewed.ok) return first;
+      const session = await renewed.json();
+      if (!session.csrf) return first;
+      csrf2 = session.csrf;
+      return await request();
+    } catch {
+      return first;
+    }
+  }
   async function apiFetch(path, options = {}) {
-    const headers = { ...options.headers || {} };
-    if (csrf2) headers["X-Pauta-CSRF"] = csrf2;
-    return fetch(path, {
-      ...options,
-      cache: options.cache ?? "no-store",
-      credentials: "same-origin",
-      headers
-    });
+    const method = String(options.method || "GET").toUpperCase();
+    const request = () => {
+      const headers = { ...options.headers || {} };
+      if (csrf2) headers["X-Pauta-CSRF"] = csrf2;
+      return fetch(path, {
+        ...options,
+        cache: options.cache ?? "no-store",
+        credentials: "same-origin",
+        headers
+      });
+    };
+    if (method === "GET" || method === "HEAD") return retryAfterSessionRenewal(request);
+    return request();
   }
   async function apiGet(route2) {
     if (!integrated) throw Error("Serviço não conectado. Abra o Painel H.B pelo iniciador integrado.");
-    let response = await apiFetch("/api/v1/" + route2);
-    if (response.status === 403 && route2 !== "session") {
-      try {
-        const renewed = await fetch("/api/v1/session", { cache: "no-store", credentials: "same-origin" });
-        if (renewed.ok) {
-          const session = await renewed.json();
-          if (session.csrf) {
-            csrf2 = session.csrf;
-            response = await apiFetch("/api/v1/" + route2);
-          }
-        }
-      } catch {
-      }
-    }
+    const response = await apiFetch("/api/v1/" + route2);
     const data = await response.json();
     if (!response.ok) throw Error(data.error || "Serviço indisponível.");
     if (data.contractVersion !== void 0 && data.contractVersion !== CONTRACT)
