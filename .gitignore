@@ -12,6 +12,7 @@ __pycache__/
 .pytest_cache/
 data/
 auth-admin.secret
+sbom.cdx.json
 *.sqlite3
 *.sqlite3-wal
 *.sqlite3-shm
