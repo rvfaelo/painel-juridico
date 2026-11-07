@@ -1,6 +1,6 @@
+import {escapeHTML as esc} from './html-utils.js';
 import {publicationDetailsHTML} from './publication-details.js';
 import {safePublicationUrl,djenCertificateUrl,publicationDateBR} from './publication-pdf.js';
-const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 export function djenNameSearchHTML(){
   return '<h2>Buscar publicações por nome</h2><form id="djen-name-search-form" class="form-grid">'+

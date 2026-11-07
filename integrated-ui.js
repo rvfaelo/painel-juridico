@@ -1,3 +1,4 @@
+import {escapeHTML} from './html-utils.js';
 import {organizePanel} from './panel-organization.js';
 import {integrated, serviceOnline, serviceError, serviceDashboard, serviceSettings,
   serviceConnectors, serviceSyncWarning, apiGet, apiPost, pollService, updateExtraConnectors} from './integrated.js';
@@ -5,12 +6,10 @@ import {integratedCaseHTML} from './integrated-case-view.js';
 import {djenNameSearchHTML,installDjenNameSearch} from './djen-name-search.js';
 import {SERVICE_JOB_FILTERS,selectServiceJobs,serviceJobRowsHTML} from './service-job-history.js';
 
-const clean = value => String(value ?? '').replace(/[&<>"']/g, c =>
-  ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
 const stamp = value => {
   if (!value) return 'Não informado';
   const time = new Date(value);
-  return Number.isNaN(time.valueOf()) ? clean(value) :
+  return Number.isNaN(time.valueOf()) ? escapeHTML(value) :
     new Intl.DateTimeFormat('pt-BR', {dateStyle:'short', timeStyle:'short',
       timeZone:'America/Sao_Paulo'}).format(time);
 };
@@ -85,8 +84,8 @@ export function decorateIntegrated(route, state) {
   const bannerHTML = serviceOnline
     ? '<p class="compact muted">Serviço Python local conectado · acompanhamento persiste com a aba fechada '+
       '(enquanto o serviço e o computador permanecerem ativos).</p>'+
-      (serviceSyncWarning?'<p class="warning-note">'+clean(serviceSyncWarning)+'</p>':'')
-    : '<p class="warning-note">Serviço desconectado: '+clean(serviceError)+
+      (serviceSyncWarning?'<p class="warning-note">'+escapeHTML(serviceSyncWarning)+'</p>':'')
+    : '<p class="warning-note">Serviço desconectado: '+escapeHTML(serviceError)+
       '. Os cadastros e anexos deste navegador permanecem disponíveis. Reinicie pelo iniciador integrado.</p>';
   if(banner._lastMarkup!==bannerHTML){banner.innerHTML=bannerHTML;banner._lastMarkup=bannerHTML;}
   const old = document.getElementById('job-progress');
@@ -128,8 +127,8 @@ export function decorateIntegrated(route, state) {
     const summary=panel.querySelector('#integrated-source-summary');
     const choices = serviceConnectors.filter(x => x.id.startsWith('esaj_')).map(item => {
       const enabled = !!serviceSettings?.enabled?.[item.id];
-      return '<label class="check-field"><input type="checkbox" name="'+clean(item.id)+'" '+
-        (enabled?'checked ':'')+(item.enabled?'':'disabled ')+'> '+clean(item.label)+
+      return '<label class="check-field"><input type="checkbox" name="'+escapeHTML(item.id)+'" '+
+        (enabled?'checked ':'')+(item.enabled?'':'disabled ')+'> '+escapeHTML(item.label)+
         (item.enabled?'':' (instalação opcional necessária)')+'</label>';
     }).join('');
     const summaryHtml =
@@ -195,7 +194,7 @@ export async function loadIntegratedCase(caseId, background=false) {
     }
   } catch (error) {
     if (!background && element.isConnected) element.innerHTML='<h3>Acompanhamento integrado</h3><p class="warning-note">'+
-      clean(error.message)+'</p>';
+      escapeHTML(error.message)+'</p>';
   }
 }
 

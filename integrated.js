@@ -13,9 +13,28 @@ export let serviceConnectors = [];
 export let serviceError = 'Inicie o serviço com ABRIR-PAINEL-INTEGRADO.cmd.';
 export let serviceSyncWarning = '';
 
+export async function apiFetch(path, options = {}) {
+  const headers = {...(options.headers || {})};
+  if (csrf) headers['X-Pauta-CSRF'] = csrf;
+  return fetch(path, {...options, cache: options.cache ?? 'no-store',
+    credentials: 'same-origin', headers});
+}
+
 export async function apiGet(route) {
   if (!integrated) throw Error('Serviço não conectado. Abra o Painel H.B pelo iniciador integrado.');
-  const response = await fetch('/api/v1/' + route, {cache: 'no-store', credentials: 'same-origin'});
+  let response = await apiFetch('/api/v1/' + route);
+  if (response.status === 403 && route !== 'session') {
+    try {
+      const renewed = await fetch('/api/v1/session', {cache: 'no-store', credentials: 'same-origin'});
+      if (renewed.ok) {
+        const session = await renewed.json();
+        if (session.csrf) {
+          csrf = session.csrf;
+          response = await apiFetch('/api/v1/' + route);
+        }
+      }
+    } catch {}
+  }
   const data = await response.json();
   if (!response.ok) throw Error(data.error || 'Serviço indisponível.');
   if (data.contractVersion !== undefined && data.contractVersion !== CONTRACT)

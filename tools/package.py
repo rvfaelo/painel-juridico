@@ -17,7 +17,8 @@ ARCHIVE = ROOT / (NAME + '.zip')
 PREFIX = 'Painel-HB/'
 
 REQUIRED = (
-    'dashboard.html', 'styles.css', 'app.bundle.js', 'app.js',
+    'dashboard.html', 'styles.css', 'app.bundle.js', 'app.js', 'boot-check.js',
+    'html-utils.js', 'text-utils.js',
     'CENTRAL-PAINEL-HB.cmd', 'central-painel-hb.ps1',
     'ABRIR-PAINEL.cmd', 'ABRIR-PAINEL-INTEGRADO.cmd', 'PREPARAR-SERVICO.cmd',
     'PARAR-SERVICO.cmd', 'STATUS-SERVICO.cmd', 'requirements.txt',
@@ -43,6 +44,23 @@ if re.search(r'\bfrom\s*["\']\./|chrome\.(runtime|storage|alarms)', bundle):
 
 # Somente nomes revisados em release-files.json.
 files = release_files(ROOT)
+
+# O pacote de release nao inclui tests/ nem os utilitarios de navegador.
+# Remove apenas esses atalhos do package.json distribuido, preservando o
+# repositorio completo (com testes) intacto.
+RELEASE_SCRIPTS = ('test', 'test:cnj', 'test:djen', 'test:ui',
+                   'test:integrated', 'probe', 'probe:live')
+
+
+def release_bytes(path, relative):
+    content = path.read_bytes()
+    if relative == 'package.json':
+        data = json.loads(content.decode('utf-8'))
+        for name in RELEASE_SCRIPTS:
+            data.get('scripts', {}).pop(name, None)
+        data.get('devDependencies', {}).pop('playwright', None)
+        content = (json.dumps(data, ensure_ascii=False, indent=2) + '\n').encode('utf-8')
+    return content
 
 readme = f'''PAINEL H.B v{VERSION} - PACOTE PARA OUTRO COMPUTADOR WINDOWS
 
@@ -77,7 +95,7 @@ readme = f'''PAINEL H.B v{VERSION} - PACOTE PARA OUTRO COMPUTADOR WINDOWS
 5. Se nao houver dados importados, o aplicativo comeca com carteira vazia.
    O monitoramento requer um computador ligado e o servico em execucao.
 
-Documentacao adicional: LEIA-ME.md e docs/SERVICO-LOCAL-0.4.0.md.
+Documentacao adicional: LEIA-ME.md e docs/ATUALIZACOES-GITHUB.md.
 Distribuicao sem instalador EXE e sem dados da maquina que criou o ZIP.
 '''
 
@@ -91,7 +109,7 @@ with ZipFile(ARCHIVE, 'w', compression=ZIP_DEFLATED, compresslevel=9) as archive
     add_reproducible('COMECE-AQUI-NOVO-PC.txt', ('\ufeff' + readme.replace('\n', '\r\n')).encode('utf-8'))
     for file in files:
         relative = file.relative_to(ROOT).as_posix()
-        add_reproducible(relative, file.read_bytes())
+        add_reproducible(relative, release_bytes(file, relative))
 
 with ZipFile(ARCHIVE) as archive:
     members = archive.namelist()
@@ -103,6 +121,11 @@ with ZipFile(ARCHIVE) as archive:
         raise RuntimeError('Arquivo obrigatorio nao incluído')
     if any(not m.startswith(PREFIX) for m in members):
         raise RuntimeError('Entrada fora do diretorio do ZIP')
+    release_package = json.loads(archive.read(PREFIX + 'package.json'))
+    if any(name in release_package.get('scripts', {}) for name in RELEASE_SCRIPTS):
+        raise RuntimeError('Script de teste/utilitario ausente do repositorio no ZIP')
+    if 'playwright' in release_package.get('devDependencies', {}):
+        raise RuntimeError('Dependencia de testes Playwright no ZIP')
     forbidden = ('node_modules/', '.venv/', 'audit-context/', 'arquivo/', 'tests/',
                  'data/', '__pycache__/', 'docs/ui-test/', '.public-datajud-key.txt')
     if any(any(part in m for part in forbidden)

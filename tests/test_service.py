@@ -11,6 +11,7 @@ import threading
 import time
 import unittest
 import urllib.request
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from service.connectors import (
@@ -19,7 +20,7 @@ from service.connectors import (
     json_request,
     djen_certificate_url, fetch_djen_certificate, _DjenCertificateRedirect,
 )
-from service.main import Server, Worker, main
+from service.main import Handler, Server, Worker, main
 from service.store import Store
 
 
@@ -47,6 +48,45 @@ def result(*movements, status="success"):
         "documents": [], "sourceUpdatedAt": "2026-11-04T10:00:00",
         "limitation": "Apenas dados publicos",
     }
+
+
+class OriginMatrixTests(unittest.TestCase):
+    def handler(self, origin, site, token):
+        handler = object.__new__(Handler)
+        handler.headers = {}
+        if origin is not None:
+            handler.headers['Origin'] = origin
+        if site:
+            handler.headers['Sec-Fetch-Site'] = site
+        if token is not None:
+            handler.headers['X-Pauta-CSRF'] = token
+        handler.server = SimpleNamespace(origin='http://127.0.0.1:8766',
+                                         csrf='token-right')
+        return handler
+
+    def test_allowed_origin_truth_table(self):
+        origins = {'equal': 'http://127.0.0.1:8766', 'none': None,
+                   'other': 'https://evil.test'}
+        sites = ('', 'same-origin', 'cross-site', 'none')
+        tokens = {'right': 'token-right', 'wrong': 'token-wrong', 'absent': None}
+        checked = 0
+        for origin_case, origin in origins.items():
+            for site in sites:
+                for token_case, token in tokens.items():
+                    # Tabela-verdade: outro Origin ou cross-site sempre nega;
+                    # Sec-Fetch-Site: none só aceita Origin ausente e CSRF certo;
+                    # vazio/same-origin mantém o comportamento anterior.
+                    expected = (
+                        origin_case != 'other' and site != 'cross-site'
+                        and (site != 'none' or (
+                            origin_case == 'none' and token_case == 'right'))
+                    )
+                    got = Handler.allowed_origin(self.handler(origin, site, token))
+                    self.assertEqual(
+                        got, expected,
+                        f'origin={origin_case} site={site or "(vazio)"} csrf={token_case}')
+                    checked += 1
+        self.assertEqual(checked, 36)
 
 
 class CNJTests(unittest.TestCase):
@@ -559,7 +599,10 @@ class ApiTests(unittest.TestCase):
         return res.status, json.loads(raw.decode())
 
     def test_pdf_oficial_serve_bytes_apenas_de_publicacao_salva(self):
-        self.assertEqual(self.req("GET", "/api/v1/publications/djen:sem-registro/certidao")[0],404)
+        token = self.req("GET", "/api/v1/session")[1]["csrf"]
+        headers = {"X-Pauta-CSRF": token}
+        self.assertEqual(self.req("GET", "/api/v1/publications/djen:sem-registro/certidao",
+                                  headers=headers)[0],404)
         self.server.store.sync_cases([{"id":"case1","cnj":cnj()}])
         self.server.store.enqueue(["case1"],["djen"])
         job=self.server.store.claim(("djen",))
@@ -570,7 +613,7 @@ class ApiTests(unittest.TestCase):
             "certificateHash":"qo8LEjMv6g2sAodc5TGKzLJRmrz2A1"}]})
         with patch("service.main.fetch_djen_certificate",return_value=b"%PDF-1.7\npdf-ficticio") as source:
             conn=http.client.HTTPConnection("127.0.0.1",self.server.server_port,timeout=3)
-            conn.request("GET","/api/v1/publications/djen:testpdf/certidao")
+            conn.request("GET","/api/v1/publications/djen:testpdf/certidao",headers=headers)
             response=conn.getresponse();body=response.read()
             self.assertEqual(response.status,200)
             self.assertEqual(response.getheader("Content-Type"),"application/pdf")
@@ -579,7 +622,8 @@ class ApiTests(unittest.TestCase):
             conn.close()
         source.assert_called_once_with("qo8LEjMv6g2sAodc5TGKzLJRmrz2A1")
         with patch("service.main.fetch_djen_certificate",side_effect=SourceError("unavailable","CNJ recusou a certidao (HTTP 429).")):
-            status,data=self.req("GET","/api/v1/publications/djen:testpdf/certidao")
+            status,data=self.req("GET","/api/v1/publications/djen:testpdf/certidao",
+                                 headers=headers)
             self.assertEqual(status,429)
             self.assertIn("429",data["error"])
 
@@ -590,11 +634,41 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.req("GET", "/../../.public-datajud-key.txt")[0], 404)
         self.assertEqual(self.req("GET", "/service/store.py")[0], 404)
 
+    def test_csp_sem_script_inline_e_boot_check_publico(self):
+        conn = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=3)
+        conn.request("GET", "/dashboard.html")
+        response = conn.getresponse()
+        dashboard = response.read().decode("utf-8")
+        csp = response.getheader("Content-Security-Policy")
+        conn.close()
+        self.assertEqual(response.status, 200)
+        self.assertIn("script-src 'self'", csp)
+        self.assertNotIn("script-src 'self' 'unsafe-inline'", csp)
+        self.assertIn('<script src="boot-check.js" defer></script>', dashboard)
+        self.assertNotIn('<script>', dashboard)
+        conn = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=3)
+        conn.request("GET", "/boot-check.js")
+        response = conn.getresponse()
+        payload = response.read()
+        conn.close()
+        self.assertEqual(response.status, 200)
+        self.assertIn(b"__PAUTA_BOOTED__", payload)
+
     def test_host_e_csrf_cors_negado(self):
         self.assertEqual(self.req("GET", "/api/v1/health", headers={"Host": "evil.test"})[0], 403)
         self.assertEqual(self.req("POST", "/api/v1/jobs", {"ids": []})[0], 403)
+        for path in ("/api/v1/health", "/api/v1/session", "/api/v1/status",
+                     "/api/v1/connectors"):
+            self.assertEqual(self.req("GET", path)[0], 200, path)
+        for path in ("/api/v1/dashboard", "/api/v1/backup", "/api/v1/publications",
+                     "/api/v1/notifications", "/api/v1/processes/inexistente",
+                     "/api/v1/publications/x/certidao"):
+            self.assertEqual(self.req("GET", path)[0], 403, path)
         session = self.req("GET", "/api/v1/session")[1]
         valid = {"X-Pauta-CSRF": session["csrf"]}
+        for path in ("/api/v1/dashboard", "/api/v1/backup", "/api/v1/publications",
+                     "/api/v1/notifications"):
+            self.assertEqual(self.req("GET", path, headers=valid)[0], 200, path)
         self.assertEqual(self.req("POST", "/api/v1/jobs", {"ids": []},
                                   {**valid, "Origin": "https://evil.test"})[0], 403)
         self.assertEqual(self.req("POST", "/api/v1/jobs", {"ids": []},

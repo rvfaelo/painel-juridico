@@ -1,9 +1,8 @@
 // Apresentação SOMENTE LEITURA do histórico do serviço Python. A identificação,
 // vinculação e deduplicação de eventos permanecem sob responsabilidade do SQLite.
+import {escapeHTML} from './html-utils.js';
 import {publicationDetailsHTML} from './publication-details.js';
 import {djenCertificateUrl,safePublicationUrl} from './publication-pdf.js';
-const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, symbol =>
-  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[symbol]));
 
 const ZONE = 'America/Sao_Paulo';
 const dateWithZone = new Intl.DateTimeFormat('pt-BR', {
@@ -93,7 +92,6 @@ export function probableCrossDegreeDuplicates(events, tramitations) {
   return possible;
 }
 
-const distinctKind = event=>event.kind==='publication'?'Publicação':'Movimento';
 const plural = (count,one,many)=>`${count.toLocaleString('pt-BR')} ${count===1?one:many}`;
 
 function latestMoment(values, oldest=false){

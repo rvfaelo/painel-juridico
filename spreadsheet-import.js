@@ -1,5 +1,6 @@
 import {unzipSync} from './zip-inflate.js';
-import {digits,formatCnj,saveEntity,validCnj,validDay,validDateTime,STAGES,COURTS,COURT_LEVELS,PROCESS_SYSTEMS,normalizeDocket,backup,validateBackup} from './core.js';
+import {digits,formatCnj,saveEntity,validCnj,validDay,validDateTime,COURTS,COURT_LEVELS,PROCESS_SYSTEMS,normalizeDocket,backup,validateBackup} from './core.js';
+import {fold} from './text-utils.js';
 
 export const IMPORT_FIELDS=Object.freeze({
   cnj:'Número CNJ (opcional se STJ/STF com registro)',title:'Título/assunto',client:'Nome do cliente',
@@ -12,7 +13,6 @@ export const IMPORT_FIELDS=Object.freeze({
 });
 export const MAX_IMPORT_ROWS=2000,MAX_IMPORT_BYTES=6*1024*1024;
 const MAX_COLUMNS=60,MAX_SHEETS=12;
-const fold=value=>String(value??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('pt-BR').trim();
 const normalized=value=>fold(value).replace(/[^a-z0-9]/g,'');
 const cell=(text='',kind='text')=>({text:String(text??''),kind});
 const empty=x=>!x?.text?.trim();
@@ -223,7 +223,7 @@ function mappedClassification(raw,field,options,court=''){
   if(!selected||!Object.hasOwn(options,selected))throw Error('Valor de '+field+' não reconhecido: '+value+'. Revise a coluna ou deixe sem mapear.');
   return selected;
 }
-const safeName=value=>fold(value).replace(/\s+/g,' ');
+const safeName=value=>fold(value).replace(/\s+/g,' ').trim();
 export function planSpreadsheetImport(state,sheet,mapping){
   if(!sheet||!Array.isArray(sheet.headers)||!Array.isArray(sheet.rows))throw Error('Planilha inválida.');
   if(!Number.isInteger(mapping?.cnj)||mapping.cnj< -1||mapping.cnj>=sheet.headers.length)throw Error('Selecione uma coluna de CNJ ou indique tribunal superior e registro adicional.');

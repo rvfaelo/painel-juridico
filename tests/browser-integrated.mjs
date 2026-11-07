@@ -61,6 +61,11 @@ async function readBrowserState() {
   return (await (await fetch(base+'/api/v1/workspace',{headers:{'X-Pauta-CSRF':session.csrf}})).json()).state;
 }
 
+async function protectedGet(path) {
+  const session=await (await fetch(base+'/api/v1/session')).json();
+  return fetch(base+path,{headers:{'X-Pauta-CSRF':session.csrf}});
+}
+
 try {
   await available();
   await page.goto(base+'/',{waitUntil:'domcontentloaded'});
@@ -208,7 +213,7 @@ try {
     'Cancelar a edição preserva a carteira original.');
   let registered;
   for (let n=0;n<40;n++) {
-    const resp=await fetch(base+'/api/v1/processes/'+encodeURIComponent(local.cases[0].id));
+    const resp=await protectedGet('/api/v1/processes/'+encodeURIComponent(local.cases[0].id));
     if(resp.ok){registered=await resp.json();break;}
     await new Promise(resolve=>setTimeout(resolve,200));
   }
@@ -318,7 +323,7 @@ try {
   await page.locator('#close-dialog').click();
   await page.setViewportSize({width:1280,height:900});
   assert.equal((await readBrowserState()).cases.length,1);
-  assert.equal((await (await fetch(base+'/api/v1/processes/'+encodeURIComponent(local.cases[0].id))).json()).events.length,0,
+  assert.equal((await (await protectedGet('/api/v1/processes/'+encodeURIComponent(local.cases[0].id))).json()).events.length,0,
     'Os eventos simulados nunca foram gravados no serviço SQLite.');
   await page.route('**/api/v1/publications',async route=>{
     const first={
@@ -356,7 +361,7 @@ try {
   assert.match(await page.locator('#integrated-publications-panel .service-jobs-pager').innerText(),/2 de 4/);
   await page.locator('#integrated-publications-panel [data-integrated="publication-prev"]').click();
   assert.match(await page.locator('#integrated-publications-panel .service-jobs-pager').innerText(),/1 de 4/);
-  assert.equal((await (await fetch(base+'/api/v1/processes/'+encodeURIComponent(local.cases[0].id))).json()).events.length,0,
+  assert.equal((await (await protectedGet('/api/v1/processes/'+encodeURIComponent(local.cases[0].id))).json()).events.length,0,
     'Exportação de publicação fictícia não persiste evento no serviço.');
   await page.locator('a[href="#sources"]').first().click();
   await page.locator('#integrated-source-panel').waitFor();
@@ -367,7 +372,7 @@ try {
   assert.match(await page.locator('#source-technical-info').innerText(),/CPF\/CNPJ/);
   assert.match(await page.locator('#source-technical-info').innerText(),/TRTs e TREs/);
   assert.match(await page.locator('[data-action="source-diagnostics"]').innerText(),/conexão real/);
-  const dashboard=await (await fetch(base+'/api/v1/dashboard')).json();
+  const dashboard=await (await protectedGet('/api/v1/dashboard')).json();
   const abundant=Array.from({length:80},(_,i)=>({id:`consult-${i}`,source:i%2?'datajud':'djen',
     status:['unavailable','running','success','cancelled'][i%4],cnj:cnj(i+1),
     case_id:i%3===0?local.cases[0].id:'',message:`Falha de referência ${i} (simulada)`,

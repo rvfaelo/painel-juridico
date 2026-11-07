@@ -1,6 +1,6 @@
 import {digits,validCnj} from './core.js';
+import {escapeHTML} from './html-utils.js';
 import {publicationDetailsHTML} from './publication-details.js';
-const escapeHTML=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 export function djenLookupHTML(){
   return '<section class="datajud-lookup" aria-label="Consulta de publicações DJEN"><h3>Publicações do processo · DJEN</h3><button type="button" class="button primary small" data-action="djen-search">Buscar publicações no DJEN</button><p class="muted compact">Consulte pelo CNJ, mesmo antes de salvar o cadastro. A prévia mostra publicações dos últimos 30 dias e não altera os campos do formulário.</p><p id="djen-lookup-status" role="status" aria-live="polite"></p><div id="djen-lookup-results"></div></section>';

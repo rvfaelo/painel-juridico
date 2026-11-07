@@ -1,4 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
 import {emptyState,migrateState,saveEntity,registerPayment,reversePayment,backup,validateBackup,validDay,validDateTime} from '../core.js';
 import {encryptBackup,decryptBackup,toBase64,fromBase64} from '../backup-crypto.js';
 import {sha256,validateDocument} from '../documents.js';
@@ -23,9 +24,22 @@ test('backup rejeita adulteração de saldo ou estorno sem recebimento',()=>{
   const c=backup(s);c.state.payments.push({id:'fake',feeId:f.id,kind:'reversal',reverses:'missing',amount:2000,date:'2026-11-05'});assert.throws(()=>validateBackup(c),/Estorno/);
 });
 test('AES-GCM restaura fielmente, usa aleatoriedade e recusa senha incorreta ou adulteração',async()=>{
-  const payload=backup(emptyState()),password='senha-de-teste-2026';const a=await encryptBackup(payload,password),b=await encryptBackup(payload,password);assert.notEqual(a.data,b.data);assert.deepEqual(await decryptBackup(a,password),payload);
+  const payload=backup(emptyState()),password='senha-de-teste-2026';const a=await encryptBackup(payload,password),b=await encryptBackup(payload,password);assert.equal(a.iterations,600000);assert.notEqual(a.data,b.data);assert.deepEqual(await decryptBackup(a,password),payload);
   await assert.rejects(()=>decryptBackup(a,'senha-incorreta'),/incorreta/);const bytes=fromBase64(a.data);bytes[0]^=1;await assert.rejects(()=>decryptBackup({...a,data:toBase64(bytes)},password),/corrompido/);
   await assert.rejects(()=>encryptBackup(payload,'curta'),/10/);await assert.rejects(()=>decryptBackup({...a,iterations:999999999},password),/suportado/);
+});
+test('backup antigo de 310.000 iterações continua abrindo após o aumento para 600.000',async()=>{
+  const password='senha-de-teste-2026';
+  const old=JSON.parse(await readFile(new URL('./fixtures/backup-pbkdf2-310000.json',import.meta.url),'utf8'));
+  assert.equal(old.iterations,310000);
+  const decoded=await decryptBackup(old,password);
+  assert.equal(decoded.format,'pauta-backup');
+  assert.equal(decoded.version,2);
+  assert.equal(decoded.state.schemaVersion,2);
+  assert.equal(decoded.state.cases.length,0);
+  const fresh=await encryptBackup(decoded,password);
+  assert.equal(fresh.iterations,600000);
+  assert.deepEqual(await decryptBackup(fresh,password),decoded);
 });
 test('anexos têm assinatura válida, hash e limites; datas impossíveis são rejeitadas',async()=>{
   const text=new TextEncoder().encode('Documento de teste');assert.equal(validateDocument(text,'text/plain'),true);assert.equal((await sha256(text)).length,64);assert.throws(()=>validateDocument(text,'application/pdf'),/formato/);assert.throws(()=>validateDocument(new Uint8Array(0),'text/plain'),/5 MB/);assert.throws(()=>validateDocument(new Uint8Array([65,0]),'text/plain'),/binário/);

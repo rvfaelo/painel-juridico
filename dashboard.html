@@ -20,7 +20,7 @@
         <strong id="release-title" class="release-title"></strong>
         <span class="release-foot">Ver changelog →</span>
       </button>
-      <div class="local-note"><span class="status-dot"></span> Dados neste computador<small>Versão 0.5.9</small></div>
+      <div class="local-note"><span class="status-dot"></span> Dados neste computador<small>Versão <span id="local-version"></span></small></div>
     </div>
   </aside>
   <main>
@@ -32,13 +32,6 @@
   <dialog id="editor" aria-labelledby="dialog-title"><div class="dialog-heading"><h2 id="dialog-title"></h2><button type="button" id="close-dialog" class="icon-button" aria-label="Fechar">×</button></div><div id="dialog-body"></div></dialog>
   <div id="toast" role="status" hidden></div>
   <script src="app.bundle.js" defer></script>
-  <script>
-    // Se o bundle não carregar, explique a causa em vez de deixar a tela vazia.
-    window.addEventListener('load',()=>setTimeout(()=>{
-      if(globalThis.__PAUTA_BOOTED__)return;
-      const content=document.querySelector('#content');
-      if(content)content.innerHTML='<div class="notice"><strong>Não foi possível carregar o aplicativo.</strong><p>Confira se <code>app.bundle.js</code> está na mesma pasta de <code>dashboard.html</code>. Se você alterou os módulos-fonte, gere o bundle com <code>npm run build</code>.</p></div>';
-    },1500));
-  </script>
+  <script src="boot-check.js" defer></script>
 </body>
 </html>

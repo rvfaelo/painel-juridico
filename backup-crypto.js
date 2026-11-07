@@ -1,5 +1,5 @@
 const encoder=new TextEncoder(),decoder=new TextDecoder('utf-8',{fatal:true});
-const ITERATIONS=310000;
+const ITERATIONS=600000;
 const additionalData=encoder.encode('Pauta encrypted backup v1');
 export function toBase64(bytes){let out='';for(let i=0;i<bytes.length;i+=24576)out+=String.fromCharCode(...bytes.subarray(i,i+24576));return btoa(out);}
 export function fromBase64(value,max=64*1024*1024){if(typeof value!=='string'||value.length>Math.ceil(max/3)*4||value.length%4||/[^A-Za-z0-9+/=]/.test(value)||/=.+[^=]/.test(value))throw Error('Dados codificados inválidos.');let raw;try{raw=atob(value);}catch{throw Error('Dados codificados inválidos.');}if(raw.length>max)throw Error('Backup excede o limite.');return Uint8Array.from(raw,c=>c.charCodeAt(0));}

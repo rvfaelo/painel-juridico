@@ -34,6 +34,7 @@ ROOT = Path(__file__).resolve().parent.parent
 STATIC = {"/": ("dashboard.html", "text/html; charset=utf-8"),
           "/dashboard.html": ("dashboard.html", "text/html; charset=utf-8"),
           "/app.bundle.js": ("app.bundle.js", "text/javascript; charset=utf-8"),
+          "/boot-check.js": ("boot-check.js", "text/javascript; charset=utf-8"),
           "/styles.css": ("styles.css", "text/css; charset=utf-8")}
 
 
@@ -131,11 +132,21 @@ class Handler(BaseHTTPRequestHandler):
         host = self.headers.get("Host", "")
         return host == self.server.origin.removeprefix("http://")
 
+    def csrf_matches(self):
+        token = self.headers.get("X-Pauta-CSRF", "")
+        try:
+            return secrets.compare_digest(token, self.server.csrf)
+        except TypeError:
+            return False
+
     def allowed_origin(self):
         origin = self.headers.get("Origin")
         site = self.headers.get("Sec-Fetch-Site", "")
-        return (origin is None or origin == self.server.origin) and site not in ("cross-site", "none") or (
-            origin is None and site == "none" and self.headers.get("X-Pauta-CSRF") == self.server.csrf)
+        if origin is not None and origin != self.server.origin:
+            return False
+        if site in ("cross-site", "none"):
+            return site == "none" and origin is None and self.csrf_matches()
+        return True
 
     def guard_host(self):
         if not self.allowed_host():
@@ -143,11 +154,17 @@ class Handler(BaseHTTPRequestHandler):
             return False
         return True
 
+    def guard_read(self):
+        if not self.allowed_origin() or not self.csrf_matches():
+            self.respond({"error": "Sessão local necessária."}, 403)
+            return False
+        return True
+
     def guard_post(self):
         if not self.allowed_origin():
             self.respond({"error": "Origin nao autorizado."}, 403)
             return False
-        if self.headers.get("X-Pauta-CSRF") != self.server.csrf:
+        if not self.csrf_matches():
             self.respond({"error": "Sessao local expirada; recarregue o painel."}, 403)
             return False
         if self.headers.get("Content-Type", "").split(";", 1)[0].lower() != "application/json":
@@ -192,10 +209,16 @@ class Handler(BaseHTTPRequestHandler):
                 installed = importlib.util.find_spec("juscraper") is not None
                 return self.respond({"contractVersion": CONTRACT_VERSION,
                                      "sources": capabilities(installed)})
+            if (path in ("/api/v1/workspace", "/api/v1/workspace/export", "/api/v1/cases",
+                         "/api/v1/dashboard", "/api/v1/publications", "/api/v1/notifications",
+                         "/api/v1/backup")
+                    or path.startswith("/api/v1/processes/")
+                    or (path.startswith("/api/v1/publications/") and path.endswith("/certidao"))):
+                # Dados locais exigem a sessão também para leitura, inclusive
+                # os que antes eram entregues apenas com Host correto.
+                if not self.guard_read():
+                    return
             if path in ("/api/v1/workspace", "/api/v1/workspace/export", "/api/v1/cases"):
-                # Dados da carteira exigem a sessão local também para leitura.
-                if not self.allowed_origin() or self.headers.get('X-Pauta-CSRF') != self.server.csrf:
-                    return self.respond({'error': 'Sessão local necessária.'}, 403)
                 result = self.server.workspace.read(files=path.endswith('/export'))
                 if path == '/api/v1/cases':
                     return self.respond({'initialized': result['initialized'],
@@ -256,7 +279,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Referrer-Policy", "no-referrer")
             self.send_header("Cache-Control", "no-cache, must-revalidate")
             self.send_header("Content-Security-Policy",
-                "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+                "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
                 "connect-src 'self'; img-src 'self' data: blob:; frame-ancestors 'none'; object-src 'none'; base-uri 'none'")
             self.end_headers()
             self.wfile.write(payload)
@@ -408,7 +431,7 @@ def main(argv=None):
         return 2
     try:
         server = Server(args.port)
-    except OSError as e:
+    except OSError:
         try:
             existing = request_status(args.port)
             if existing["contractVersion"] != CONTRACT_VERSION:

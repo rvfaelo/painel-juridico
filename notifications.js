@@ -1,10 +1,10 @@
 import {formatCnj} from './core.js';
+import {escapeHTML as esc} from './html-utils.js';
 import {safePublicationUrl,publicationDateBR} from './publication-pdf.js';
+import {fold} from './text-utils.js';
 
-const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export const notificationKey=e=>JSON.stringify([e.source,String(e.cnj||'').replace(/\D/g,''),e.id]);
 export const notificationSource=s=>({djen:'DJEN',datajud:'DataJud',esaj_pg:'TJSP e-SAJ · 1º grau',esaj_sg:'TJSP e-SAJ · 2º grau'})[s]||s||'Fonte não informada';
-const fold=v=>String(v??'').normalize('NFD').replace(/\p{M}/gu,'').toLocaleLowerCase('pt-BR');
 const time=v=>Number.isFinite(Date.parse(v))?Date.parse(v):0;
 const eventDay=value=>{const day=publicationDateBR(value);return /^\d\d\/\d\d\/\d{4}$/.test(day)?day.split('/').reverse().join('-'):'';};
 

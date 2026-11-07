@@ -1,4 +1,4 @@
-const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+import {escapeHTML as esc} from './html-utils.js';
 
 export function rawDjenDetails(item={}){
   const d={},text=x=>typeof x==='string'||typeof x==='number'?String(x).trim().slice(0,240):'';

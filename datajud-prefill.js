@@ -1,12 +1,11 @@
 // Prévia avulsa DataJud. Só há persistência quando o usuário salva a ficha.
 // Não consulta o navegador diretamente: recebe apiPost da ponte same-origin.
 import {digits, validCnj} from './core.js';
+import {escapeHTML} from './html-utils.js';
 
 const drafts = new WeakMap();
 const initialDrafts = new WeakMap();
 const previews = new WeakMap();
-const clean = value => String(value ?? '').replace(/[&<>"']/g, c =>
-  ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
 const labels = {tribunal:'Tribunal', grau:'Grau', sistema:'Sistema', classe:'Classe',
   assuntos:'Assuntos', orgao:'Órgão julgador', dataAjuizamento:'Data de ajuizamento'};
 const infoFields = ['tribunal','grau','sistema','classe','assuntos','orgao','dataAjuizamento'];
@@ -94,8 +93,8 @@ function detailsHTML(details) {
     ['Assuntos',(details.assuntos||[]).join('; ')],['Órgão julgador',details.orgao],
     ['Data de ajuizamento',details.dataAjuizamento],['Atualização na fonte',details.sourceUpdatedAt]];
   return '<dl class="datajud-details">'+entries.map(([label,value])=>
-    `<div><dt>${label}</dt><dd>${value?clean(value):'Não informado pelo DataJud'}</dd></div>`).join('')+
-    '</dl><p class="muted compact">Fonte: DataJud/CNJ · registro '+clean(details.recordId||'não informado')+'. Dados públicos importados por confirmação; não alteram suas observações.</p>';
+    `<div><dt>${label}</dt><dd>${value?escapeHTML(value):'Não informado pelo DataJud'}</dd></div>`).join('')+
+    '</dl><p class="muted compact">Fonte: DataJud/CNJ · registro '+escapeHTML(details.recordId||'não informado')+'. Dados públicos importados por confirmação; não alteram suas observações.</p>';
 }
 
 export function initDatajudForm(form, saved) {
@@ -125,14 +124,14 @@ function renderPreview(form) {
   const records=data.records||[], index=Number(form.querySelector('#datajud-choice')?.value||0);
   const item=records[index]||records[0];
   holder.hidden=false;
-  holder.innerHTML=`<h3>Prévia dos dados públicos</h3><p class="muted compact">${clean(data.message||'')} Nenhuma informação será salva antes de confirmar e salvar o processo.</p>`+
+  holder.innerHTML=`<h3>Prévia dos dados públicos</h3><p class="muted compact">${escapeHTML(data.message||'')} Nenhuma informação será salva antes de confirmar e salvar o processo.</p>`+
     (data.partial?'<p class="warning-note">Resultado parcial. Alguns registros podem não ter sido consultados.</p>':'')+
     (records.length>1?`<label class="field">Escolha o registro ou grau
       <select id="datajud-choice" aria-label="Selecionar registro DataJud">${records.map((row,i)=>
-      `<option value="${i}" ${i===index?'selected':''}>${clean(row.tribunal||'Tribunal não informado')} · ${clean(row.grau||'Grau não informado')} · ${clean(row.orgao||row.id||'Registro '+(i+1))}</option>`).join('')}</select></label>`:'')+
+      `<option value="${i}" ${i===index?'selected':''}>${escapeHTML(row.tribunal||'Tribunal não informado')} · ${escapeHTML(row.grau||'Grau não informado')} · ${escapeHTML(row.orgao||row.id||'Registro '+(i+1))}</option>`).join('')}</select></label>`:'')+
     (item?'<dl class="datajud-details">'+infoFields.map(field=>{
       const value=field==='assuntos'?(item.assuntos||[]).join('; '):item[field];
-      return `<div><dt>${labels[field]}</dt><dd>${clean(value||'Não informado pela fonte')}</dd></div>`;
+      return `<div><dt>${labels[field]}</dt><dd>${escapeHTML(value||'Não informado pela fonte')}</dd></div>`;
     }).join('')+'</dl><button type="button" class="button secondary small" data-action="datajud-apply">Aplicar apenas aos campos vazios</button><p id="datajud-apply-status" class="datajud-apply-status" role="status" aria-live="polite" aria-atomic="true" hidden></p>':
     '<p class="warning-note">Nenhum registro localizado nesta consulta. Isso não prova inexistência do processo. Confira o portal oficial.</p>');
   updateApplyState(form);
@@ -177,7 +176,7 @@ function renderPreviewSelection(form){
   const dl=holder.querySelector('.datajud-details');
   if(dl&&selected)dl.innerHTML=infoFields.map(field=>{
     const value=field==='assuntos'?(selected.assuntos||[]).join('; '):selected[field];
-    return `<div><dt>${labels[field]}</dt><dd>${clean(value||'Não informado pela fonte')}</dd></div>`;
+    return `<div><dt>${labels[field]}</dt><dd>${escapeHTML(value||'Não informado pela fonte')}</dd></div>`;
   }).join('');
   updateApplyState(form);
 }

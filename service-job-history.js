@@ -1,4 +1,6 @@
 // Visão de leitura do histórico das consultas: sem efeitos e sem alterar a fila.
+import {escapeHTML as esc} from './html-utils.js';
+import {fold} from './text-utils.js';
 export const SERVICE_JOB_PAGE_SIZE=6;
 export const SERVICE_JOB_FILTERS=Object.freeze({
   all:'Todas',attention:'Atenção',active:'Em andamento',completed:'Concluídas',cancelled:'Canceladas'
@@ -6,7 +8,6 @@ export const SERVICE_JOB_FILTERS=Object.freeze({
 const ATTENTION=new Set(['partial','error','action','auth_required','access_denied','unavailable','unsupported','incompatible','interrupted']);
 const ACTIVE=new Set(['queued','running']);
 const COMPLETED=new Set(['success','not_found']);
-const fold=value=>String(value??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
 export function serviceJobGroup(job){
   const status=String(job?.status??'');
   if(ACTIVE.has(status))return 'active';
@@ -28,7 +29,6 @@ export function selectServiceJobs(jobs,{filter='all',query='',page=1,pageSize=SE
   return {rows:matches.slice(from,from+size),counts,total:matches.length,totalPages,page:currentPage,
     first:matches.length?from+1:0,last:Math.min(from+size,matches.length),pageSize:size};
 }
-const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const SOURCES={datajud:'DataJud',djen:'DJEN',esaj_pg:'TJSP e-SAJ · 1º grau',esaj_sg:'TJSP e-SAJ · 2º grau'};
 const LABELS={queued:'Na fila',running:'Consultando',success:'Concluída',partial:'Parcial',not_found:'Não localizada',
   auth_required:'Autenticação necessária',access_denied:'Acesso negado',unavailable:'Indisponível',unsupported:'Não suportado',

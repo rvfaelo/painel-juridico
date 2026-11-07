@@ -1,9 +1,8 @@
-# Painel H.B — Painel Jurídico Local 0.5.8
+# Painel H.B — Painel Jurídico Local 0.6.0
 
 **Planilha do escritório com Tribunal, Processo, Autor, Réu, Ação, Audiência e Hora:**
 o importador reconhece essas sete colunas automaticamente, preserva as partes
 em campos próprios e inclui na Agenda apenas audiências com data/hora válidas.
-Ver docs/IMPORTACAO-7-COLUNAS-2026-11-05.md.
 
 Aplicativo HTML local para organizar processos, clientes, tarefas, compromissos,
 honorários, recebimentos/estornos, publicações e anexos. **Não é extensão de
@@ -44,7 +43,7 @@ integrado, selecione **Restaurar backup**, confirme e confira quantidade de
 processos, clientes, tarefas, honorários, anexos e histórico. Replicar a
 restauração substitui os registros após confirmação; não faz inserção duplicada.
 Não declare migração concluída sem verificar. A migração da antiga extensão
-está em `docs/MIGRACAO-APP-LOCAL.md`.
+usa o mesmo backup descrito acima.
 
 ## Fontes e monitoramento
 
@@ -166,8 +165,7 @@ e **Revisar em**. A ficha também permite adicionar, concluir, reabrir e remover
 pendências em checklist, além de **Marcar visto hoje**. Os dados ficam no
 banco local e entram no backup protegido. Arquivados não aparecem nos
 Agendados até serem desarquivados. **Visto é conferência interna**, não ciência
-de intimação; revisão é lembrete, não prazo jurídico calculado. Documentação
-completa: `docs/AGENDADOS-2026-11-05.md`.
+de intimação; revisão é lembrete, não prazo jurídico calculado.
 
 A carteira usa exclusivamente a visualização **Lista**. Em **Processos**,
 selecione uma ou mais caixas de marcação para **Arquivar**, **Desarquivar**
@@ -191,10 +189,8 @@ recolhido por padrão. O histórico antigo do navegador mostra seis linhas e
 oferece acesso recolhido ao restante. As configurações essenciais aparecem
 antes dos relatórios e diagnósticos secundários.
 
-A auditoria de interface está documentada em
-`docs/AUDITORIA-UI-UX-2026-11-05.md`. A skill UI/UX Pro Max foi instalada
-**globalmente** em `%USERPROFILE%\.agents\skills\ui-ux-pro-max` e suas
-diretrizes foram aplicadas sem adicionar dependências ao Painel H.B em execução.
+As diretrizes de interface foram aplicadas sem adicionar dependências ao
+Painel H.B em execução.
 
 Em **Publicações**, as datas usam `dd/mm/aaaa`. A consulta pública
 `GET https://comunicaapi.pje.jus.br/api/v1/comunicacao` fornece o campo `texto`
@@ -227,8 +223,7 @@ processos já monitorados. A cópia antiga no IndexedDB permanece preservada,
 mas deixa de receber edições no modo integrado. O modo `file://` é independente.
 
 O serviço requer **Node.js 24+** para reutilizar as validações de `core.js`.
-Cada gravação exige a revisão atual e cria backup físico local. Consulte
-`docs/API-CADASTROS-LOCAIS.md` para gerenciamento sem navegador.
+Cada gravação exige a revisão atual e cria backup físico local.
 
 No modo integrado, **Exportar backup** reúne a carteira, anexos e monitoramento
 em um JSON que pode ser protegido por senha
@@ -258,18 +253,12 @@ entrar no Windows; **não é instalado automaticamente**. Para desfazer,
 
 ## Testes
 
-```powershell
-npm run build
-npm test
-python -m unittest discover -s tests -p "test_service*.py" -v
-npm run test:ui
-npm run test:integrated
-```
+A suíte automatizada (Node.js e Python) fica no repositório-fonte completo e
+não é incluída neste pacote de distribuição. Para recompilar o bundle, use
+`npm run build` com Node.js 24+.
 
-Detalhes da arquitetura, operação, incidentes e limitações:
-`docs/SERVICO-LOCAL-0.4.0.md`. Evidências de testes e cobertura:
-`docs/VALIDACAO-0.4.0.md`. Código legado da extensão preservado em
-`arquivo/extensao-0.2.16/` como referência histórica.
+Detalhes de arquitetura, operação e limitações estão neste LEIA-ME e em
+`docs/ATUALIZACOES-GITHUB.md`.
 
 Testes com fixtures e navegador local não comprovam cobertura ou
 disponibilidade das fontes reais. Nenhum ZIP é gerado automaticamente.

@@ -1,3 +1,4 @@
+import {escapeHTML as esc} from './html-utils.js';
 import {organizePanel} from './panel-organization.js';
 import {schedulePanel,scheduleRow} from './schedule-panel.js';
 import {safeDateLabel} from './safe-dates.js';
@@ -6,10 +7,10 @@ import {publicationDetailsHTML} from './publication-details.js';
 import {installLoadingIndicators} from './loading-indicator.js';
 installLoadingIndicators();
 import {readState,initializeWorkspace,mutate,addDocument,readDocument,auditLocalAttachments,removeDocument,exportBundle,decodeBundle,restoreBundle} from './db.js';
-import {taskView,STAGES,JUDICIAL_SYSTEMS,COURTS,COURT_LEVELS,PROCESS_SYSTEMS,MANUAL_CHECK_RESULTS,COVERAGE_RESULTS,WORK_OWNERS,WORK_STATUSES,VERSION,saveEntity,cnjChangeImpact,auditLocalData,reconcileEventLinks,pendingManualReviews,pendingSourceIssues,pendingOabIssue,latestCoverageJob,registerCoverageSample,coverageSummary,coverageEvidenceMatrix,formatCnj,tribunalAlias,dateKey,digits,validCnj,money,overview,registerPayment,reversePayment,registerManualCheck,sameManualIdentity,now,caseDeletionImpact,deleteCases,updateCaseWorkflow,markCaseReviewed,addCasePending,toggleCasePending,removeCasePending} from './core.js';
+import {taskView,STAGES,JUDICIAL_SYSTEMS,COURTS,COURT_LEVELS,PROCESS_SYSTEMS,MANUAL_CHECK_RESULTS,COVERAGE_RESULTS,WORK_OWNERS,WORK_STATUSES,VERSION,saveEntity,cnjChangeImpact,auditLocalData,reconcileEventLinks,pendingManualReviews,pendingSourceIssues,pendingOabIssue,latestCoverageJob,registerCoverageSample,coverageSummary,coverageEvidenceMatrix,formatCnj,dateKey,digits,validCnj,money,overview,registerPayment,reversePayment,registerManualCheck,sameManualIdentity,now,caseDeletionImpact,deleteCases,updateCaseWorkflow,markCaseReviewed,addCasePending,toggleCasePending,removeCasePending} from './core.js';
 import {scheduledCases,SCHEDULE_GROUPS,SCHEDULE_SORTS} from './agendados.js';
 import {encryptBackup,decryptBackup} from './backup-crypto.js';
-import {handle,startScheduler,autoScheduleInfo,parseAutoTimes,runAutoNow} from './engine.js';
+import {handle,autoScheduleInfo,parseAutoTimes} from './engine.js';
 import {transport} from './transport.js';
 import {officialConsultation} from './official-links.js';
 import {CHANGELOG} from './changelog.js';
@@ -18,7 +19,7 @@ import {publicationDateBR,downloadPublicationPdf,downloadOfficialCertificate,dje
 import {checkSourceConnectivity} from './source-health.js';
 import {readSpreadsheet,suggestMapping,planSpreadsheetImport,commitSpreadsheetImport,IMPORT_FIELDS} from './spreadsheet-import.js';
 import {portfolioTemplateCsv,exportPortfolioCsv,exportImportReportCsv} from './portfolio-csv.js';
-import {integrated,serviceOnline,serviceDashboard,connect,syncBrowser,pollService,serverCommand,apiGet,apiPost,exportMonitoring,restoreMonitoring} from './integrated.js';
+import {integrated,serviceOnline,connect,syncBrowser,pollService,serverCommand,apiGet,apiPost,apiFetch,exportMonitoring,restoreMonitoring} from './integrated.js';
 import {decorateIntegrated,loadIntegratedCase,refreshIntegratedCase,installIntegratedActions} from './integrated-ui.js';
 import {initDatajudForm,getDatajudDraft,searchDatajud,chooseDatajudRecord,
   applyDatajudSelection,invalidateDatajudIfCnjChanged} from './datajud-prefill.js';
@@ -28,7 +29,6 @@ import {historyPage} from './integrated-case-view.js';
 import {NotificationCenter,notificationKey} from './notifications.js';
 
 const $=selector=>document.querySelector(selector);
-const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const paths={home:'M3 10 12 3l9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z',cases:'M3 7h7l2-3h9v16H3Z',clients:'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M22 21v-2a4 4 0 0 0-3-3.87 M16 3a4 4 0 0 1 0 8',tasks:'M9 5h12 M9 12h12 M9 19h12 M3 5l1 1 2-2 M3 12l1 1 2-2 M3 19l1 1 2-2',agenda:'M4 5h16v16H4Z M8 3v4 M16 3v4 M4 10h16 M8 14h3 M14 14h2',agendados:'M4 5h16v16H4Z M8 3v4 M16 3v4 M4 10h16 M8 15l2 2 4-4',finance:'M3 5h18v14H3Z M12 8a3 3 0 1 0 0 8 3 3 0 0 0 0-8 M6 9v6 M18 9v6',publications:'M6 3h9l4 4v14H6Z M14 3v6h5 M9 13h7 M9 17h5',sources:'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8 M3 12h2 M19 12h2 M12 3v2 M12 19v2 M5.6 5.6 7 7 M17 17l1.4 1.4 M5.6 18.4 7 17 M17 7l1.4-1.4',privacy:'M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12 M3 3l18 18',backup:'M5 17v4h14v-4 M12 3v12 M7 10l5 5 5-5',refresh:'M20 7v5h-5 M4 17v-5h5 M6 7a7 7 0 0 1 12-1l2 3 M4 15l2 3a7 7 0 0 0 12-1',plus:'M12 5v14 M5 12h14',arrow:'M5 12h14 M13 6l6 6-6 6',check:'M5 12l4 4L19 6'};
 const icon=name=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[name]||paths.cases}"/></svg>`;
 const routes={home:['Visão geral','Seu escritório em um só lugar'],cases:['Processos','Casos, próximos passos e histórico'],agendados:['Agendados','Próximas providências, responsáveis e revisões'],clients:['Clientes','Contatos e relacionamentos'],tasks:['Tarefas','O trabalho que precisa avançar'],agenda:['Agenda','Compromissos confirmados por você'],finance:['Honorários','Previsão, recebimentos e saldo'],publications:['Publicações','Comunicações disponíveis no DJEN'],sources:['Fontes e ajustes','Transparência em cada consulta']};
@@ -43,7 +43,6 @@ const clientName=id=>state.clients.find(x=>x.id===id)?.name||'Sem cliente vincul
 const caseName=id=>state.cases.find(x=>x.id===id)?.title||'Sem processo vinculado';
 const date=value=>esc(safeDateLabel(value));
 const timestamp=value=>value?new Intl.DateTimeFormat('pt-BR',{dateStyle:'short',timeStyle:'short',timeZone:'America/Sao_Paulo'}).format(new Date(value)):'Ainda não consultado';
-const slotLabel=value=>value?`${date(value.slice(0,10))} ${value.slice(11,16)}`:'—';
 const button=(action,label,cls='secondary',id='')=>`<button class="button ${cls}" data-action="${action}"${id?` data-id="${esc(id)}"`:''}>${label}</button>`;
 const tag=(label,cls='')=>`<span class="tag ${cls}">${esc(label)}</span>`;
 function toast(text){$('#toast').textContent=text;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,6500);}
@@ -286,7 +285,7 @@ function render(){
   if(route==='publications')void refreshPublications();
   notificationCenter.badge();
   if(route==='sources'){simplifySourceLimitations();updateTimeControls(document.getElementById('auto-form'));}
-  $('.local-note small').textContent='Versão '+VERSION;
+  $('#local-version').textContent=VERSION;
   if(route==='sources'&&!integrated)$('#content').insertAdjacentHTML('afterbegin','<div class="notice"><strong>HTML direto, sem serviço Python.</strong> Seus registros permanecem acessíveis no IndexedDB, mas novas consultas judiciais estão indisponíveis. Para integrá-las, faça backup e abra pelo iniciador integrado; os dados de file:// não aparecem automaticamente em localhost.</div>');
   // Configurações e histórico aparecem primeiro; diagnósticos e conteúdo de
   // apoio não devem obrigar o usuário a percorrer várias telas para alcançá-los.
@@ -452,7 +451,7 @@ async function action(name,id,caseId=''){
   if(name==='publication-seen'||name.startsWith('unified-')){
     const e=unifiedPublications(state,publicationEvents).find(e=>e.key===id);if(!e)throw Error('Publicação não encontrada. Atualize a lista.');
     if(name==='unified-publication-pdf'){downloadPublicationPdf(e);return;}
-    if(name==='unified-publication-official-pdf')return downloadOfficialCertificate(e,{integrated:e.remote});
+    if(name==='unified-publication-official-pdf')return downloadOfficialCertificate(e,{integrated:e.remote,...(e.remote?{fetcher:apiFetch}:{})});
     if(name==='unified-register-event'){if(!validCnj(e.cnj))throw Error('CNJ inválido.');const existing=state.cases.find(c=>c.cnj===e.cnj);return existing?fullDetail(existing.id):edit('cases','',{cnj:e.cnj,title:'Processo '+formatCnj(e.cnj)});}
     const seen=!e.seen;publicationWriteEpoch++;
     if(e.remote){if(seen&&!e.is_new&&!e.seen){for(const ref of e.serviceRefs)await apiPost('events/seen',{caseId:ref.caseId,source:ref.source,eventId:ref.eventId});}else await apiPost('notifications/seen',{events:[{id:e.id,source:e.source,cnj:e.cnj}],seen});}
