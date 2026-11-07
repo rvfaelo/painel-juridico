@@ -20,6 +20,8 @@
     "test:coverage": "npx --yes c8@10.1.3 --check-coverage --lines 82 --branches 84 --functions 74 npm test",
     "test:ui": "node tests/browser-local.mjs",
     "test:accessibility": "node tests/accessibility.mjs",
+    "test:load": "node --test tests/load-state.test.mjs",
+    "test:load:store": "python tools/load-store.py",
     "test:integrated": "node tests/browser-integrated.mjs",
     "probe": "node tools/probe.mjs",
     "probe:live": "node tools/live-browser-local.mjs"

@@ -51,7 +51,8 @@ files = release_files(ROOT)
 # Remove apenas esses atalhos do package.json distribuido, preservando o
 # repositorio completo (com testes) intacto.
 RELEASE_SCRIPTS = ('test', 'test:cnj', 'test:djen', 'test:coverage', 'test:ui',
-                   'test:integrated', 'test:accessibility', 'probe', 'probe:live')
+                   'test:integrated', 'test:accessibility', 'test:load',
+                   'test:load:store', 'probe', 'probe:live')
 TEST_DEV_DEPENDENCIES = ('playwright', 'axe-core')
 
 
