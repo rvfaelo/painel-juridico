@@ -3,6 +3,7 @@ companion/host.cmd
 companion/br.com.pauta.local.json
 docs/helper-installation.json
 docs/ui-test/
+coverage/
 node_modules/
 *.zip
 .venv/
