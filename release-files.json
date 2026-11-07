@@ -67,6 +67,7 @@
   "source-health.js",
   "sources.js",
   "spreadsheet-import.js",
+  "state-machines.js",
   "styles.css",
   "text-utils.js",
   "tools/build-app.mjs",

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   backup, emptyState, migrateState, validateBackup,
   TABLES, STAGES, WORK_OWNERS, WORK_STATUSES, JUDICIAL_SYSTEMS, COURTS, COURT_LEVELS,
-  PROCESS_SYSTEMS, MANUAL_CHECK_RESULTS, MANUAL_COURT_SOURCES, COVERAGE_RESULTS, JOB_STATES,
+  PROCESS_SYSTEMS, MANUAL_CHECK_RESULTS, MANUAL_COURT_SOURCES, COVERAGE_RESULTS, ALL_JOB_STATES,
   validCnj, validDay, validDateTime, validDatajudDetails, validateCaseHierarchy, digits,
   normalizeDocket, dateKey
 } from '../core.js';
@@ -82,7 +82,7 @@ function validateBackupOld(value) {
   for(const table of ['tasks','appointments','fees','events','jobs'])for(const row of s[table])if(row.caseId&&!caseIds.has(row.caseId))throw Error('Vínculo de processo ausente.');
   const usedManualChecks=new Set();
   for(const t of s.tasks){
-    if(!text(t.title,240)||!t.title||!STAGES[t.stage]||!day(t.due))throw Error('Tarefa inválida.');
+    if(!text(t.title,240)||!t.title||!STAGES[t.stage]||!day(t.due)||t.previousStage!==undefined&&(t.stage!=='done'||!Object.hasOwn(STAGES,t.previousStage)||t.previousStage==='done'))throw Error('Tarefa inválida.');
     if(t.manualCheckId!==undefined){
       if(!text(t.manualCheckId,100))throw Error('Origem da tarefa inválida.');
       if(t.manualCheckId){
@@ -107,7 +107,7 @@ function validateBackupOld(value) {
   }
   for(const f of s.fees)if(paidByFee.get(f.id)!==f.paid)throw Error('Saldo financeiro inconsistente no backup.');
   for(const d of s.documents)if(!caseIds.has(d.caseId)||!text(d.name,200)||!d.name||!text(d.mime,80)||d.createdAt!==undefined&&!validStoredDate(d.createdAt)||!Number.isInteger(d.size)||d.size<=0||d.size>5*1024*1024||!/^([a-f0-9]{64})$/.test(d.sha256||''))throw Error('Anexo inválido no backup.');
-  for(const j of s.jobs)if(!JOB_STATES.includes(j.status)||!['datajud','djen'].includes(j.source)||!text(j.updatedAt,40)||Number.isNaN(Date.parse(j.updatedAt))||j.needsManualRetry!==undefined&&typeof j.needsManualRetry!=='boolean')throw Error('Consulta inválida.');
+  for(const j of s.jobs)if(!ALL_JOB_STATES.includes(j.status)||!['datajud','djen'].includes(j.source)||!text(j.updatedAt,40)||Number.isNaN(Date.parse(j.updatedAt))||j.needsManualRetry!==undefined&&typeof j.needsManualRetry!=='boolean')throw Error('Consulta inválida.');
   for(const j of s.jobs){
     for(const k of ['periodStart','periodEnd'])if(j[k]!==undefined&&j[k]!==''&&!validDay(j[k]))throw Error('Período de consulta inválido no backup.');
     if(j.periodStart&&j.periodEnd&&j.periodStart>j.periodEnd)throw Error('Período de consulta invertido no backup.');

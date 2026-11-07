@@ -2,6 +2,7 @@
 // Substitui o antigo background.js/service worker: tudo roda na própria página.
 import {readState, mutate} from './db.js';
 import {enqueue, enqueueOab, retrySourceJob, retryOabJob, now, VERSION} from './core.js';
+import {transitionJob,JOB_ACTIVE_STATES} from './state-machines.js';
 import {datajud, djen} from './sources.js';
 import {step} from './runner.js';
 import {transport} from './transport.js';
@@ -56,7 +57,7 @@ async function drain() {
     pumping = false;
   }
   const state = await readState().catch(() => null);
-  const pending = state?.jobs?.filter(job => ['queued', 'running'].includes(job.status)) || [];
+  const pending = state?.jobs?.filter(job => JOB_ACTIVE_STATES.includes(job.status)) || [];
   if (pending.length) {
     // Consultas "running" podem ter ficado de uma aba fechada. O runner só as
     // retoma após o lease expirar, então o temporizador precisa acordar para
@@ -101,7 +102,7 @@ export async function handle(type, extra = {}) {
     await mutate(state => {
       for (const job of state.jobs) {
         if (job.status === 'interrupted' && !job.needsManualRetry) {
-          Object.assign(job, {status: 'queued', nextAt: 0, updatedAt: now()});
+          transitionJob(job, 'queued', {nextAt: 0, updatedAt: now()});
         }
       }
     });
@@ -111,8 +112,8 @@ export async function handle(type, extra = {}) {
   if (type === 'cancel') {
     await mutate(state => {
       for (const job of state.jobs) {
-        if (['queued', 'running'].includes(job.status)) {
-          Object.assign(job, {status: 'cancelled', message: 'Cancelado pelo usuário', updatedAt: now()});
+        if (JOB_ACTIVE_STATES.includes(job.status)) {
+          transitionJob(job, 'cancelled', {message: 'Cancelado pelo usuário', updatedAt: now()});
         }
       }
     });

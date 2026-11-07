@@ -20,7 +20,7 @@ REQUIRED = (
     'dashboard.html', 'styles.css', 'app.bundle.js', 'app.js', 'boot-check.js',
     'action-backup.js', 'action-cases.js', 'action-general.js', 'action-publications.js',
     'view-boards.js', 'view-case-detail.js', 'view-content.js', 'view-editor.js', 'view-settings-events.js', 'view-sources.js',
-    'html-utils.js', 'text-utils.js',
+    'html-utils.js', 'text-utils.js', 'state-machines.js',
     'CENTRAL-PAINEL-HB.cmd', 'central-painel-hb.ps1',
     'ABRIR-PAINEL.cmd', 'ABRIR-PAINEL-INTEGRADO.cmd', 'PREPARAR-SERVICO.cmd',
     'PARAR-SERVICO.cmd', 'STATUS-SERVICO.cmd', 'requirements.txt',

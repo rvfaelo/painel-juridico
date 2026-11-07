@@ -1,7 +1,124 @@
-/* Painel H.B v0.6.7 · bundle gerado por tools/build-app.mjs. Edite os módulos-fonte, não este arquivo. */
+/* Painel H.B v0.6.8 · bundle gerado por tools/build-app.mjs. Edite os módulos-fonte, não este arquivo. */
 (() => {
   // html-utils.js
   var escapeHTML = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
+
+  // state-machines.js
+  var STAGES = Object.freeze({ todo: "A fazer", doing: "Fazendo", ready: "Pronto para protocolar", done: "Concluído" });
+  var WORK_STATUSES = Object.freeze({ todo: "A fazer", doing: "Fazendo", ready: "Pronto para protocolar", done: "Feito" });
+  var WORK_OWNERS = Object.freeze({ me: "Comigo", court: "Com o juízo", other: "Parte contrária", client: "Com o cliente" });
+  function assertCaseStage(stage) {
+    if (!Object.hasOwn(STAGES, stage)) throw Error("Etapa inválida.");
+    return stage;
+  }
+  function assertTaskStage(stage) {
+    if (!Object.hasOwn(STAGES, stage)) throw Error("Informe tarefa e etapa válidas.");
+    return stage;
+  }
+  function assertCaseNotArchived(c) {
+    if (c?.archived) throw Error("Desarquive o processo para editar o acompanhamento.");
+    return c;
+  }
+  function setCaseStage(c, stage) {
+    assertCaseStage(stage);
+    c.stage = stage;
+    return c;
+  }
+  function setCaseArchived(c, archived) {
+    c.archived = !!archived;
+    return c;
+  }
+  function workOwnerOf(c) {
+    return Object.hasOwn(WORK_OWNERS, c?.workOwner) ? c.workOwner : "me";
+  }
+  function workStatusOf(c) {
+    return Object.hasOwn(WORK_STATUSES, c?.workStatus) ? c.workStatus : "todo";
+  }
+  function previousTaskStage(task) {
+    if (task?.stage !== "done") return Object.hasOwn(STAGES, task?.stage) ? task.stage : "todo";
+    return Object.hasOwn(STAGES, task.previousStage) && task.previousStage !== "done" ? task.previousStage : "todo";
+  }
+  function setTaskStage(task, stage, { previousStage } = {}) {
+    assertTaskStage(stage);
+    if (stage === "done") {
+      const before = previousStage !== void 0 ? previousStage : task?.stage;
+      task.previousStage = Object.hasOwn(STAGES, before) && before !== "done" ? before : "todo";
+    } else {
+      delete task.previousStage;
+    }
+    task.stage = stage;
+    return task;
+  }
+  function toggleTaskDone(task) {
+    if (!task) return task;
+    if (task.stage === "done") {
+      task.stage = previousTaskStage(task);
+      delete task.previousStage;
+    } else {
+      setTaskStage(task, "done");
+    }
+    return task;
+  }
+  function createPendingItem({ id, title, createdAt }) {
+    return { id, title, done: false, createdAt, completedAt: "" };
+  }
+  function setPendingDone(item, done, timestamp2 = "") {
+    if (!item) throw Error("Pendência não encontrada neste processo.");
+    if (done && !timestamp2) throw Error("Pendência concluída exige data de conclusão.");
+    item.done = !!done;
+    item.completedAt = done ? timestamp2 : "";
+    return item;
+  }
+  function pendingIsConsistent(item) {
+    return !!item && typeof item.done === "boolean" && item.done === !!item.completedAt;
+  }
+  function isBaselineEvent(event) {
+    return !!(event?.remote && !event.is_new && !event.seen && !event.localIds?.length);
+  }
+  var JOB_STATES = Object.freeze(["queued", "running", "success", "not_found", "error", "action", "cancelled", "interrupted"]);
+  var SERVICE_JOB_STATES = Object.freeze(["partial", "auth_required", "access_denied", "unavailable", "unsupported", "incompatible"]);
+  var ALL_JOB_STATES = Object.freeze([...JOB_STATES, ...SERVICE_JOB_STATES]);
+  var JOB_ACTIVE_STATES = Object.freeze(["queued", "running"]);
+  var JOB_RESULT_STATES = Object.freeze(["success", "not_found", "action", "error", "interrupted"]);
+  var JOB_FAILURE_STATES = Object.freeze(["action", "error", "interrupted"]);
+  var JOB_TRANSITIONS = Object.freeze({
+    queued: Object.freeze(["running", "cancelled", "interrupted"]),
+    running: Object.freeze(["queued", "success", "not_found", "error", "action", "cancelled", "interrupted"]),
+    success: Object.freeze([]),
+    not_found: Object.freeze([]),
+    error: Object.freeze([]),
+    action: Object.freeze([]),
+    cancelled: Object.freeze([]),
+    interrupted: Object.freeze(["queued"])
+  });
+  var JOB_STATUS_LABELS = Object.freeze({
+    queued: "Na fila",
+    running: "Consultando",
+    success: "Concluído",
+    not_found: "Não localizado",
+    error: "Falhou",
+    action: "Requer ação",
+    cancelled: "Cancelado",
+    interrupted: "Interrompido",
+    partial: "Resultado parcial",
+    auth_required: "Autenticação necessária",
+    access_denied: "Acesso negado",
+    unavailable: "Fonte indisponível",
+    unsupported: "Não disponível",
+    incompatible: "Resposta incompatível"
+  });
+  function canTransitionJob(from, to) {
+    return ALL_JOB_STATES.includes(from) && ALL_JOB_STATES.includes(to) && (from === to || (JOB_TRANSITIONS[from] || []).includes(to));
+  }
+  function transitionJob(job, status, patch = {}) {
+    if (!job || typeof job !== "object") throw Error("Consulta inválida.");
+    if (!ALL_JOB_STATES.includes(status)) throw Error("Estado de consulta inválido.");
+    const from = job.status ?? "queued";
+    if (!ALL_JOB_STATES.includes(from)) throw Error("Estado atual da consulta inválido.");
+    if (!canTransitionJob(from, status)) throw Error(`Transição de consulta inválida: ${from} → ${status}.`);
+    Object.assign(job, patch, { status });
+    return job;
+  }
 
   // action-cases.js
   function createCaseActions(app) {
@@ -174,7 +291,7 @@
       archive: async ({ id }) => {
         await app.change((s) => {
           const c = s.cases.find((c2) => c2.id === id);
-          if (c) c.archived = !c.archived;
+          if (c) setCaseArchived(c, !c.archived);
         }, "Arquivo atualizado.");
         app.selected.delete(id);
         if (app.$("#editor").open) app.$("#editor").close();
@@ -182,7 +299,7 @@
       },
       "complete-task": async ({ id }) => app.change((s) => {
         const t = s.tasks.find((t2) => t2.id === id);
-        if (t) t.stage = t.stage === "done" ? "todo" : "done";
+        if (t) toggleTaskDone(t);
       }, "Tarefa atualizada."),
       seen: async ({ id }) => {
         await app.change((s) => {
@@ -371,7 +488,7 @@
       const overview2 = `<div class="agendados-overview" aria-label="Resumo de revisões"><div><strong>${model.overview.overdue}</strong><span>Atrasadas</span></div><div><strong>${model.overview.today}</strong><span>Revisar hoje</span></div><div><strong>${model.overview.week}</strong><span>Próximos 7 dias</span></div><div><strong>${model.overview.pending}</strong><span>Pendências abertas</span></div></div>`;
       const filters = `<div class="agendados-toolbar"><div class="agendados-owners" role="group" aria-label="Responsável pela próxima ação">${options}</div><div class="agendados-toolbar-right"><label class="field">Buscar processo ou providência<input class="search" data-filter="search" aria-label="Buscar nos agendados" placeholder="Cliente, CNJ, próximo passo…" value="${app.esc(app.query)}"></label><label class="field">Ordenar por<select data-scheduled-sort="true" aria-label="Ordenar agendados">${Object.entries(app.SCHEDULE_SORTS).map(([key, label2]) => `<option value="${key}" ${app.scheduledSort === key ? "selected" : ""}>${app.esc(label2)}</option>`).join("")}</select></label></div></div>`;
       const groups = Object.entries(model.groups).map(([key, rows]) => [key, rows.filter((c) => visibleIds.has(c.id))]).filter(([, rows]) => rows.length).map(([key, rows]) => `<section class="agendados-group" aria-label="${app.esc(app.SCHEDULE_GROUPS[key])}"><div class="agendados-group-heading"><h3>${app.esc(app.SCHEDULE_GROUPS[key])}</h3><span>${rows.length}</span></div><div class="agendados-list">${rows.map((c) => {
-        const pending = (c.pendingItems || []).filter((item) => !item.done).length, viewedToday = c.reviewedAt && app.dateKey(new Date(c.reviewedAt)) === app.dateKey(), owner = c.workOwner || "me", status = c.workStatus || "todo";
+        const pending = (c.pendingItems || []).filter((item) => !item.done).length, viewedToday = c.reviewedAt && app.dateKey(new Date(c.reviewedAt)) === app.dateKey(), owner = workOwnerOf(c), status = workStatusOf(c);
         return `<article class="agendados-row"><div class="agendados-case"><button class="cell-title private" data-action="detail" data-id="${app.esc(c.id)}">${app.esc(c.title)}</button><small class="private">${app.esc(app.clientName(c.clientId))} · ${app.esc(c.cnj ? app.formatCnj(c.cnj) : c.docketNumber || "Sem CNJ")}</small></div><div class="agendados-status">${app.tag(app.WORK_OWNERS[owner] || app.WORK_OWNERS.me, "")}${app.tag(app.WORK_STATUSES[status] || app.WORK_STATUSES.todo, status === "ready" ? "action" : status === "done" ? "success" : "")}</div><div class="agendados-next"><strong class="private">${app.esc(c.nextStep || "Próximo passo ainda não definido")}</strong><small>${app.esc(c.area || "Área não informada")} · ${app.esc(app.PROCESS_SYSTEMS[c.processSystem || ""] || "Sistema não informado")}</small>${pending ? `<span class="agendados-pending">${pending} pendência(s) aberta(s)</span>` : ""}</div><div class="agendados-review"><strong>${c.review ? app.date(c.review) : "Sem data"}</strong><small>${c.reviewedAt ? "Visto: " + app.timestamp(c.reviewedAt) : "Ainda não visto"}</small></div><div class="agendados-actions">${app.button("detail", "Abrir ficha", "secondary small", c.id)}${app.button("workflow-viewed", viewedToday ? "Visto hoje ✓" : "Marcar visto", "ghost small", c.id)}</div></article>`;
       }).join("")}</div></section>`).join("");
       const emptyMessage = app.state.cases.some((c) => !c.archived) ? '<div class="empty"><h2>Nenhum processo neste filtro</h2><p>Altere o responsável ou o termo pesquisado.</p></div>' : app.empty("Organize suas revisões", "Cadastre o primeiro processo. Depois registre o próximo passo, responsável e data de revisão.", "new-cases", "Cadastrar processo");
@@ -1083,7 +1200,7 @@
   }
 
   // core.js
-  var VERSION = "0.6.7";
+  var VERSION = "0.6.8";
   function taskView(tasks2, query2 = "", filter2 = "open") {
     if (!["open", "done", "all"].includes(filter2)) throw Error("Filtro de tarefas inválido.");
     const fold2 = (v) => String(v ?? "").normalize("NFD").replace(new RegExp("\\p{M}", "gu"), "").toLocaleLowerCase("pt-BR");
@@ -1096,9 +1213,6 @@
   }
   var SCHEMA = 2;
   var PUBLIC_DATAJUD_KEY = "cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw==";
-  var STAGES = { todo: "A fazer", doing: "Fazendo", ready: "Pronto para protocolar", done: "Concluído" };
-  var WORK_OWNERS = Object.freeze({ me: "Comigo", court: "Com o juízo", other: "Parte contrária", client: "Com o cliente" });
-  var WORK_STATUSES = Object.freeze({ todo: "A fazer", doing: "Fazendo", ready: "Pronto para protocolar", done: "Feito" });
   var JUDICIAL_SYSTEMS = { "": "Não identificado", eproc: "eproc", pje: "PJe", projudi: "Projudi", portal: "Consulta processual TJRJ" };
   var COURTS = { "": "Não informado", tjrj: "TJRJ", trf2: "TRF2", tjsp: "TJSP", stj: "STJ", stf: "STF", other: "Outro tribunal" };
   var COURT_LEVELS = { "": "Não informado", first: "1º grau", second: "2º grau", jec: "Juizado especial estadual", state_panel: "Turma recursal estadual", jef: "Juizado especial federal (JEF)", federal_panel: "Turma recursal federal", superior: "Tribunal superior", other: "Outro grau" };
@@ -1150,7 +1264,6 @@
   var MANUAL_CHECK_RESULTS = { no_changes: "Sem novidade identificada", change: "Movimentação identificada", attention: "Requer acompanhamento", unavailable: "Consulta não concluída" };
   var COVERAGE_RESULTS = { match: "Coincidente na amostra", difference: "Divergência observada", unavailable: "Fonte indisponível", inconclusive: "Comparação inconclusiva" };
   var TABLES = ["clients", "cases", "tasks", "appointments", "fees", "events", "jobs", "payments", "documents", "coverageSamples"];
-  var JOB_STATES = ["queued", "running", "success", "not_found", "error", "action", "cancelled", "interrupted"];
   var uid = () => crypto.randomUUID();
   var now = () => (/* @__PURE__ */ new Date()).toISOString();
   var digits = (value) => String(value ?? "").replace(/\D/g, "");
@@ -1175,7 +1288,7 @@
   function caseForWorkflow(state2, caseId) {
     const c = state2.cases.find((row) => row.id === caseId);
     if (!c) throw Error("Processo não encontrado para acompanhamento.");
-    if (c.archived) throw Error("Desarquive o processo para editar o acompanhamento.");
+    assertCaseNotArchived(c);
     return c;
   }
   function updateCaseWorkflow(state2, caseId, input) {
@@ -1198,7 +1311,7 @@
     if (typeof title !== "string" || !title.trim() || title.length > 240) throw Error("Descreva a pendência em até 240 caracteres.");
     if (!Array.isArray(c.pendingItems)) c.pendingItems = [];
     if (c.pendingItems.length >= 80) throw Error("Máximo de 80 pendências por processo.");
-    const item = { id: uid(), title: clean(title, 240), done: false, createdAt: now(), completedAt: "" };
+    const item = createPendingItem({ id: uid(), title: clean(title, 240), createdAt: now() });
     c.pendingItems.push(item);
     c.updatedAt = now();
     return item;
@@ -1207,8 +1320,7 @@
     const c = caseForWorkflow(state2, caseId);
     const item = (c.pendingItems || []).find((row) => row.id === pendingId);
     if (!item) throw Error("Pendência não encontrada neste processo.");
-    item.done = !item.done;
-    item.completedAt = item.done ? now() : "";
+    setPendingDone(item, !item.done, now());
     c.updatedAt = now();
     return item;
   }
@@ -1283,7 +1395,7 @@
   function latestCoverageJob(state2, caseId, source) {
     const c = state2.cases.find((x) => x.id === caseId);
     if (!c || !validCnj(c.cnj) || !["djen", "datajud"].includes(source)) return null;
-    return [...state2.jobs].reverse().find((j2) => j2.caseId === c.id && j2.cnj === c.cnj && j2.source === source && ["success", "not_found", "action", "error", "interrupted"].includes(j2.status)) || null;
+    return [...state2.jobs].reverse().find((j2) => j2.caseId === c.id && j2.cnj === c.cnj && j2.source === source && JOB_RESULT_STATES.includes(j2.status)) || null;
   }
   function registerCoverageSample(state2, input) {
     const c = state2.cases.find((x) => x.id === input.caseId);
@@ -1355,14 +1467,14 @@
     }).sort((a, b) => b.checkedAt.localeCompare(a.checkedAt));
   }
   function pendingSourceIssues(state2) {
-    const issues = [], terminal = /* @__PURE__ */ new Set(["success", "not_found", "action", "error", "interrupted"]);
+    const issues = [], terminal = new Set(JOB_RESULT_STATES);
     for (const c of state2.cases) {
       if (c.archived || !c.cnj) continue;
       for (const source of ["datajud", "djen"]) {
         if (!state2.settings[source]) continue;
         const jobs = state2.jobs.filter((j2) => j2.caseId === c.id && j2.cnj === c.cnj && j2.source === source);
         const latest = [...jobs].reverse().find((j2) => terminal.has(j2.status));
-        if (!latest || !["action", "error", "interrupted"].includes(latest.status)) continue;
+        if (!latest || !JOB_FAILURE_STATES.includes(latest.status)) continue;
         issues.push({
           jobId: latest.id,
           caseId: c.id,
@@ -1372,7 +1484,7 @@
           message: latest.message || "Consulta não concluída",
           updatedAt: latest.updatedAt,
           partial: latest.count > 0,
-          retrying: jobs.some((j2) => ["queued", "running"].includes(j2.status))
+          retrying: jobs.some((j2) => JOB_ACTIVE_STATES.includes(j2.status))
         });
       }
     }
@@ -1380,11 +1492,11 @@
   }
   function retrySourceJob(state2, jobId) {
     const j2 = state2.jobs.find((x) => x.id === jobId);
-    if (!j2 || !j2.caseId || !["action", "error", "interrupted"].includes(j2.status)) throw Error("Consulta sem falha elegível para nova tentativa.");
+    if (!j2 || !j2.caseId || !JOB_FAILURE_STATES.includes(j2.status)) throw Error("Consulta sem falha elegível para nova tentativa.");
     const c = state2.cases.find((x) => x.id === j2.caseId);
     if (!c || c.archived || !c.cnj || c.cnj !== j2.cnj) throw Error("O processo foi alterado ou arquivado.");
     if (!state2.settings[j2.source]) throw Error("A fonte está desativada nas configurações.");
-    const latest = [...state2.jobs].reverse().find((x) => x.caseId === c.id && x.cnj === c.cnj && x.source === j2.source && ["success", "not_found", "action", "error", "interrupted"].includes(x.status));
+    const latest = [...state2.jobs].reverse().find((x) => x.caseId === c.id && x.cnj === c.cnj && x.source === j2.source && JOB_RESULT_STATES.includes(x.status));
     if (latest?.id !== j2.id) throw Error("Existe um resultado mais recente para esta fonte.");
     if (j2.source === "djen" && (j2.periodStart || j2.periodEnd) && (!validDay2(j2.periodStart) || !validDay2(j2.periodEnd) || j2.periodStart > j2.periodEnd)) throw Error("Período da consulta anterior inválido. Verifique o histórico antes de repetir.");
     const added = enqueue(state2, [c.id], [j2.source]);
@@ -1399,9 +1511,9 @@
     const { oab, ufOab, djen: djen2 } = state2.settings;
     if (!djen2 || !/^\d{1,8}[A-Za-z]?$/.test(oab) || !/^[A-Z]{2}$/.test(ufOab)) return null;
     const jobs = state2.jobs.filter((j2) => !j2.caseId && j2.source === "djen" && j2.oab === oab && j2.ufOab === ufOab);
-    const terminal = /* @__PURE__ */ new Set(["success", "not_found", "action", "error", "interrupted"]);
+    const terminal = new Set(JOB_RESULT_STATES);
     const latest = [...jobs].reverse().find((j2) => terminal.has(j2.status));
-    if (!latest || !["action", "error", "interrupted"].includes(latest.status)) return null;
+    if (!latest || !JOB_FAILURE_STATES.includes(latest.status)) return null;
     return {
       jobId: latest.id,
       oab,
@@ -1410,15 +1522,15 @@
       message: latest.message || "Consulta não concluída",
       updatedAt: latest.updatedAt,
       partial: latest.count > 0,
-      retrying: jobs.some((j2) => ["queued", "running"].includes(j2.status))
+      retrying: jobs.some((j2) => JOB_ACTIVE_STATES.includes(j2.status))
     };
   }
   function retryOabJob(state2, jobId) {
     const j2 = state2.jobs.find((x) => x.id === jobId);
-    if (!j2 || j2.caseId || j2.source !== "djen" || !["action", "error", "interrupted"].includes(j2.status)) throw Error("Busca por OAB sem falha elegível para nova tentativa.");
+    if (!j2 || j2.caseId || j2.source !== "djen" || !JOB_FAILURE_STATES.includes(j2.status)) throw Error("Busca por OAB sem falha elegível para nova tentativa.");
     if (!state2.settings.djen) throw Error("DJEN está desativado nas configurações.");
     if (j2.oab !== state2.settings.oab || j2.ufOab !== state2.settings.ufOab) throw Error("A OAB configurada foi alterada. Confira os dados antes de tentar novamente.");
-    const latest = [...state2.jobs].reverse().find((x) => !x.caseId && x.source === "djen" && x.oab === j2.oab && x.ufOab === j2.ufOab && ["success", "not_found", "action", "error", "interrupted"].includes(x.status));
+    const latest = [...state2.jobs].reverse().find((x) => !x.caseId && x.source === "djen" && x.oab === j2.oab && x.ufOab === j2.ufOab && JOB_RESULT_STATES.includes(x.status));
     if (latest?.id !== j2.id) throw Error("Existe um resultado mais recente para esta OAB.");
     return enqueueOab(state2, { periodStart: j2.periodStart, periodEnd: j2.periodEnd });
   }
@@ -1467,7 +1579,7 @@
       documents: state2.documents.filter((d) => d.caseId === caseId).length,
       manualChecks: (c.manualChecks || []).filter((x) => sameManualIdentity(c, x)).length,
       events: state2.events.filter((e) => e.caseId === caseId && digits(e.cnj) === c.cnj).length,
-      jobs: state2.jobs.filter((j2) => j2.caseId === caseId && j2.cnj === c.cnj && ["queued", "running"].includes(j2.status)).length
+      jobs: state2.jobs.filter((j2) => j2.caseId === caseId && j2.cnj === c.cnj && JOB_ACTIVE_STATES.includes(j2.status)).length
     };
   }
   function saveEntity(state2, table, input) {
@@ -1530,7 +1642,7 @@
       } else if (old && old.cnj !== cnj) delete row.datajudDetails;
       if (old && (old.cnj !== cnj || String(old.docketNumber || "") !== docketNumber || manualCheckCourt(old) !== manualCheckCourt(row))) row.manualCheckedAt = "";
       if (!row.title) throw Error("Informe um título para o caso.");
-      if (!STAGES[row.stage]) throw Error("Etapa inválida.");
+      assertCaseStage(row.stage);
       if (row.clientId && !state2.clients.some((x) => x.id === row.clientId)) throw Error("Cliente não encontrado.");
     }
     if (table === "tasks") {
@@ -1540,8 +1652,9 @@
         if (!linked?.manualChecks?.some((x) => x.id === manualCheckId)) throw Error("Conferência de origem não encontrada neste processo.");
         if (state2.tasks.some((t) => t.id !== id && t.manualCheckId === manualCheckId)) throw Error("Já existe uma tarefa vinculada a esta conferência.");
       }
-      Object.assign(row, { title: clean(input.title, 240), caseId: input.caseId || "", due: clean(input.due, 10), stage: input.stage || "todo", notes: clean(input.notes), manualCheckId });
-      if (!row.title || !STAGES[row.stage]) throw Error("Informe tarefa e etapa válidas.");
+      Object.assign(row, { title: clean(input.title, 240), caseId: input.caseId || "", due: clean(input.due, 10), notes: clean(input.notes), manualCheckId });
+      if (!row.title) throw Error("Informe tarefa e etapa válidas.");
+      setTaskStage(row, input.stage || "todo", { previousStage: old?.previousStage });
     }
     if (table === "appointments") {
       Object.assign(row, { title: clean(input.title, 240), caseId: input.caseId || "", when: clean(input.when, 16), kind: clean(input.kind, 40), notes: clean(input.notes) });
@@ -1561,8 +1674,8 @@
     if (table === "cases") {
       if (old && old.cnj !== row.cnj) {
         row.sourceInfo = {};
-        for (const job of state2.jobs) if (job.caseId === row.id && job.cnj !== row.cnj && ["queued", "running"].includes(job.status)) {
-          Object.assign(job, { status: "cancelled", message: "Consulta cancelada: CNJ do processo foi corrigido.", updatedAt: now(), leaseUntil: 0 });
+        for (const job of state2.jobs) if (job.caseId === row.id && job.cnj !== row.cnj && JOB_ACTIVE_STATES.includes(job.status)) {
+          transitionJob(job, "cancelled", { message: "Consulta cancelada: CNJ do processo foi corrigido.", updatedAt: now(), leaseUntil: 0 });
         }
       }
       reconcileEventLinks(state2);
@@ -1611,7 +1724,7 @@
     let added = 0;
     for (const c of selected2) for (const source of onlySources) {
       if (!state2.settings[source]) continue;
-      if (state2.jobs.some((x) => x.caseId === c.id && x.cnj === c.cnj && x.source === source && ["queued", "running"].includes(x.status))) continue;
+      if (state2.jobs.some((x) => x.caseId === c.id && x.cnj === c.cnj && x.source === source && JOB_ACTIVE_STATES.includes(x.status))) continue;
       state2.jobs.push({ id: uid(), runId: uid(), caseId: c.id, cnj: c.cnj, source, status: "queued", createdAt: now(), updatedAt: now(), cursor: null, attempt: 0, added: 0, count: 0, message: "Na fila", leaseUntil: 0, nextAt: 0 });
       added++;
     }
@@ -1620,14 +1733,14 @@
   function enqueueOab(state2, options = {}) {
     if (!state2.settings.djen) throw Error("DJEN está desativado. Habilite a fonte em Fontes e ajustes antes de buscar por OAB.");
     if (!/^\d{1,8}[A-Za-z]?$/.test(state2.settings.oab) || !/^[A-Z]{2}$/.test(state2.settings.ufOab)) throw Error("Configure OAB e UF antes da busca.");
-    if (state2.jobs.some((x) => x.oab === state2.settings.oab && x.ufOab === state2.settings.ufOab && ["queued", "running"].includes(x.status))) return 0;
+    if (state2.jobs.some((x) => x.oab === state2.settings.oab && x.ufOab === state2.settings.ufOab && JOB_ACTIVE_STATES.includes(x.status))) return 0;
     if (options.periodStart !== void 0 && options.periodStart !== "" && !validDay2(options.periodStart)) throw Error("Período inicial da consulta inválido.");
     if (options.periodEnd !== void 0 && options.periodEnd !== "" && !validDay2(options.periodEnd)) throw Error("Período final da consulta inválido.");
     if (options.periodStart && options.periodEnd && options.periodStart > options.periodEnd) throw Error("Período da consulta invertido.");
     state2.jobs.push({ id: uid(), caseId: "", source: "djen", oab: state2.settings.oab, ufOab: state2.settings.ufOab, status: "queued", createdAt: now(), updatedAt: now(), cursor: null, attempt: 0, added: 0, count: 0, message: "Na fila", leaseUntil: 0, nextAt: 0, ...options });
     return 1;
   }
-  var backup = (state2) => ({ format: "pauta-backup", version: 2, createdAt: now(), state: { ...structuredClone(state2), jobs: state2.jobs.map((x) => ["queued", "running"].includes(x.status) ? { ...x, status: "interrupted", needsManualRetry: true, leaseUntil: 0, message: "Pendente no momento do backup. Revise e repita manualmente; não há retomada automática após restauração." } : x), settings: { ...state2.settings, datajudKey: "" } } });
+  var backup = (state2) => ({ format: "pauta-backup", version: 2, createdAt: now(), state: { ...structuredClone(state2), jobs: state2.jobs.map((x) => JOB_ACTIVE_STATES.includes(x.status) ? { ...x, status: "interrupted", needsManualRetry: true, leaseUntil: 0, message: "Pendente no momento do backup. Revise e repita manualmente; não há retomada automática após restauração." } : x), settings: { ...state2.settings, datajudKey: "" } } });
   var backupText = (v, max = 2e5) => typeof v === "string" && v.length <= max;
   var backupDay = (v) => !v || validDay2(v);
   function validateBackupTables(s) {
@@ -1648,7 +1761,7 @@
       for (const [field2, options] of [["court", COURTS], ["courtLevel", COURT_LEVELS], ["processSystem", PROCESS_SYSTEMS]]) {
         if (Object.hasOwn(item, field2) && (!backupText(item[field2], 40) || !Object.hasOwn(options, item[field2]))) throw Error("Classificação da amostra de cobertura inválida no backup.");
       }
-      if (!c || !validCnj(item.cnj) || !["djen", "datajud"].includes(item.source) || !Object.hasOwn(COVERAGE_RESULTS, item.result) || !validDay2(item.referenceDate) || item.referenceDate > dateKey() || !backupText(item.notes, 1500) || item.notes.trim().length < 12 || typeof item.checkedAt !== "string" || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(item.checkedAt) || !Number.isFinite(Date.parse(item.checkedAt)) || new Date(item.checkedAt).toISOString() !== item.checkedAt || item.jobId !== "" && (!j2 || j2.caseId !== item.caseId || j2.cnj !== item.cnj || j2.source !== item.source || !["success", "not_found", "error", "action", "interrupted"].includes(j2.status)) || ["match", "difference"].includes(item.result) && !["success", "not_found"].includes(j2?.status)) throw Error("Amostra de cobertura inválida no backup.");
+      if (!c || !validCnj(item.cnj) || !["djen", "datajud"].includes(item.source) || !Object.hasOwn(COVERAGE_RESULTS, item.result) || !validDay2(item.referenceDate) || item.referenceDate > dateKey() || !backupText(item.notes, 1500) || item.notes.trim().length < 12 || typeof item.checkedAt !== "string" || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(item.checkedAt) || !Number.isFinite(Date.parse(item.checkedAt)) || new Date(item.checkedAt).toISOString() !== item.checkedAt || item.jobId !== "" && (!j2 || j2.caseId !== item.caseId || j2.cnj !== item.cnj || j2.source !== item.source || !JOB_RESULT_STATES.includes(j2.status)) || ["match", "difference"].includes(item.result) && !["success", "not_found"].includes(j2?.status)) throw Error("Amostra de cobertura inválida no backup.");
     }
   }
   function validateBackupClients(s) {
@@ -1659,7 +1772,7 @@
     if (!Array.isArray(c.pendingItems) || c.pendingItems.length > 80) throw Error("Pendências do processo inválidas no backup.");
     const pendingIds = /* @__PURE__ */ new Set();
     for (const item of c.pendingItems) {
-      if (!item || typeof item.id !== "string" || !item.id || pendingIds.has(item.id) || !backupText(item.title, 240) || !item.title.trim() || typeof item.done !== "boolean" || !backupText(item.createdAt, 40) || !Number.isFinite(Date.parse(item.createdAt)) || !backupText(item.completedAt, 40) || item.completedAt && !Number.isFinite(Date.parse(item.completedAt)) || item.done !== !!item.completedAt) throw Error("Pendência inválida no backup.");
+      if (!item || typeof item.id !== "string" || !item.id || pendingIds.has(item.id) || !backupText(item.title, 240) || !item.title.trim() || !pendingIsConsistent(item) || !backupText(item.createdAt, 40) || !Number.isFinite(Date.parse(item.createdAt)) || !backupText(item.completedAt, 40) || item.completedAt && !Number.isFinite(Date.parse(item.completedAt))) throw Error("Pendência inválida no backup.");
       pendingIds.add(item.id);
     }
   }
@@ -1710,7 +1823,7 @@
   function validateBackupTasks(s, caseById) {
     const usedManualChecks = /* @__PURE__ */ new Set();
     for (const t of s.tasks) {
-      if (!backupText(t.title, 240) || !t.title || !STAGES[t.stage] || !backupDay(t.due)) throw Error("Tarefa inválida.");
+      if (!backupText(t.title, 240) || !t.title || !STAGES[t.stage] || !backupDay(t.due) || t.previousStage !== void 0 && (t.stage !== "done" || !Object.hasOwn(STAGES, t.previousStage) || t.previousStage === "done")) throw Error("Tarefa inválida.");
       if (t.manualCheckId !== void 0) {
         if (!backupText(t.manualCheckId, 100)) throw Error("Origem da tarefa inválida.");
         if (t.manualCheckId) {
@@ -1749,7 +1862,7 @@
     for (const d of s.documents) if (!caseIds.has(d.caseId) || !backupText(d.name, 200) || !d.name || !backupText(d.mime, 80) || d.createdAt !== void 0 && !validStoredDate(d.createdAt) || !Number.isInteger(d.size) || d.size <= 0 || d.size > 5 * 1024 * 1024 || !/^([a-f0-9]{64})$/.test(d.sha256 || "")) throw Error("Anexo inválido no backup.");
   }
   function validateBackupJobs(s) {
-    for (const j2 of s.jobs) if (!JOB_STATES.includes(j2.status) || !["datajud", "djen"].includes(j2.source) || !backupText(j2.updatedAt, 40) || Number.isNaN(Date.parse(j2.updatedAt)) || j2.needsManualRetry !== void 0 && typeof j2.needsManualRetry !== "boolean") throw Error("Consulta inválida.");
+    for (const j2 of s.jobs) if (!ALL_JOB_STATES.includes(j2.status) || !["datajud", "djen"].includes(j2.source) || !backupText(j2.updatedAt, 40) || Number.isNaN(Date.parse(j2.updatedAt)) || j2.needsManualRetry !== void 0 && typeof j2.needsManualRetry !== "boolean") throw Error("Consulta inválida.");
   }
   function validateBackupJobPeriods(s) {
     for (const j2 of s.jobs) {
@@ -1766,7 +1879,7 @@
   function finalizeBackup(s) {
     const result = structuredClone(s);
     result.settings = { ...emptyState().settings, ...s.settings, datajudKey: "" };
-    result.jobs = result.jobs.map((x) => ({ ...x, status: ["queued", "running"].includes(x.status) ? "interrupted" : x.status }));
+    result.jobs = result.jobs.map((x) => ({ ...x, status: JOB_ACTIVE_STATES.includes(x.status) ? "interrupted" : x.status }));
     return result;
   }
   function validateBackup(value) {
@@ -1814,7 +1927,7 @@
     for (const table of ["appointments", "fees", "events"]) for (const row of state2[table]) if (keys.has(row.caseId)) row.caseId = "";
     for (const job of state2.jobs) if (keys.has(job.caseId)) {
       job.caseId = "";
-      if (["queued", "running"].includes(job.status)) Object.assign(job, { status: "cancelled", message: "Consulta cancelada: cadastro excluído.", updatedAt: stamp2, leaseUntil: 0 });
+      if (JOB_ACTIVE_STATES.includes(job.status)) transitionJob(job, "cancelled", { message: "Consulta cancelada: cadastro excluído.", updatedAt: stamp2, leaseUntil: 0 });
     }
     for (const c of state2.cases) if (keys.has(c.parentCaseId)) c.parentCaseId = "";
     return impact;
@@ -2364,18 +2477,15 @@
   // runner.js
   async function step({ read, mutate: mutate2, adapters: adapters2, clock = Date.now }) {
     const job = await mutate2((state2) => {
-      for (const j2 of state2.jobs) if (j2.status === "running" && j2.leaseUntil < clock()) {
-        j2.status = "queued";
-        j2.message = "Retomando consulta interrompida";
-      }
-      for (const j2 of state2.jobs) if (j2.status === "queued" && state2.settings[j2.source] !== true) Object.assign(j2, { status: "cancelled", leaseUntil: 0, updatedAt: now(), message: "Consulta cancelada: fonte desativada." });
+      for (const j2 of state2.jobs) if (j2.status === "running" && j2.leaseUntil < clock()) transitionJob(j2, "queued", { message: "Retomando consulta interrompida" });
+      for (const j2 of state2.jobs) if (j2.status === "queued" && state2.settings[j2.source] !== true) transitionJob(j2, "cancelled", { leaseUntil: 0, updatedAt: now(), message: "Consulta cancelada: fonte desativada." });
       for (const j2 of state2.jobs) if (j2.status === "queued" && j2.caseId) {
         const c = state2.cases.find((c2) => c2.id === j2.caseId);
-        if (!c || c.archived || c.cnj !== j2.cnj) Object.assign(j2, { status: "cancelled", leaseUntil: 0, updatedAt: now(), message: "Consulta cancelada: processo alterado ou arquivado." });
+        if (!c || c.archived || c.cnj !== j2.cnj) transitionJob(j2, "cancelled", { leaseUntil: 0, updatedAt: now(), message: "Consulta cancelada: processo alterado ou arquivado." });
       }
       const item = state2.jobs.find((j2) => j2.status === "queued" && (j2.nextAt || 0) <= clock());
       if (!item) return null;
-      Object.assign(item, { status: "running", runId: uid(), leaseUntil: clock() + (item.source === "datajud" ? 9e4 : 45e3), updatedAt: now() });
+      transitionJob(item, "running", { runId: uid(), leaseUntil: clock() + (item.source === "datajud" ? 9e4 : 45e3), updatedAt: now() });
       if (item.source === "djen" && !item.periodStart) {
         item.periodEnd = dateKey();
         item.periodStart = dateKey(new Date(clock() - (Math.min(365, Math.max(1, Number(state2.settings.djenDays) || 30)) - 1) * 864e5));
@@ -2388,7 +2498,7 @@
       if (state2.settings[job.source] !== true || !job.caseId && job.source === "djen" && (state2.settings.oab !== job.oab || state2.settings.ufOab !== job.ufOab)) {
         await mutate2((s) => {
           const live = s.jobs.find((j2) => j2.id === job.id);
-          if (live?.status === "running" && live.runId === job.runId) Object.assign(live, { status: "cancelled", leaseUntil: 0, updatedAt: now(), message: "Consulta cancelada: fonte desativada." });
+          if (live?.status === "running" && live.runId === job.runId) transitionJob(live, "cancelled", { leaseUntil: 0, updatedAt: now(), message: "Consulta cancelada: fonte desativada." });
         });
         return true;
       }
@@ -2398,13 +2508,14 @@
         if (!live || live.status !== "running" || live.runId !== job.runId) return;
         const c = job.caseId ? s.cases.find((c2) => c2.id === job.caseId) : null;
         if (s.settings[job.source] !== true || job.caseId && (!c || c.archived || c.cnj !== job.cnj) || !job.caseId && job.source === "djen" && (s.settings.oab !== job.oab || s.settings.ufOab !== job.ufOab)) {
-          Object.assign(live, { status: "cancelled", message: "Consulta cancelada: fonte ou referência foi alterada.", leaseUntil: 0, updatedAt: now() });
+          transitionJob(live, "cancelled", { message: "Consulta cancelada: fonte ou referência foi alterada.", leaseUntil: 0, updatedAt: now() });
           return;
         }
         live.added = (live.added || 0) + mergeEvents(s, response.events);
         live.count = (live.count || 0) + response.count;
         const hasNext = response.nextCursor !== null;
-        Object.assign(live, { status: hasNext ? "queued" : response.notFound && live.count === 0 ? "not_found" : "success", cursor: response.nextCursor, nextAt: clock() + 500, leaseUntil: 0, attempt: 0, updatedAt: now(), sourceUpdatedAt: response.sourceUpdatedAt || live.sourceUpdatedAt || "", message: hasNext ? "Buscando próxima página" : response.notFound && live.count === 0 ? "Nenhum registro encontrado nesta fonte e neste período" : `Concluído · ${live.added} novidade(s)`, periodStart: response.periodStart || live.periodStart, periodEnd: response.periodEnd || live.periodEnd });
+        const status = hasNext ? "queued" : response.notFound && live.count === 0 ? "not_found" : "success";
+        transitionJob(live, status, { cursor: response.nextCursor, nextAt: clock() + 500, leaseUntil: 0, attempt: 0, updatedAt: now(), sourceUpdatedAt: response.sourceUpdatedAt || live.sourceUpdatedAt || "", message: hasNext ? "Buscando próxima página" : response.notFound && live.count === 0 ? "Nenhum registro encontrado nesta fonte e neste período" : `Concluído · ${live.added} novidade(s)`, periodStart: response.periodStart || live.periodStart, periodEnd: response.periodEnd || live.periodEnd });
         if (response.snapshots && job.caseId) {
           const c2 = s.cases.find((c3) => c3.id === job.caseId && c3.cnj === job.cnj);
           if (c2) {
@@ -2419,11 +2530,11 @@
         const live = s.jobs.find((j2) => j2.id === job.id);
         if (!live || live.status !== "running" || live.runId !== job.runId) return;
         if (s.settings[job.source] !== true) {
-          Object.assign(live, { status: "cancelled", message: "Consulta cancelada: fonte desativada.", leaseUntil: 0, updatedAt: now() });
+          transitionJob(live, "cancelled", { message: "Consulta cancelada: fonte desativada.", leaseUntil: 0, updatedAt: now() });
           return;
         }
         const retry = error.retryable && (live.attempt || 0) < 2;
-        Object.assign(live, { status: retry ? "queued" : error.action ? "action" : "error", attempt: (live.attempt || 0) + 1, nextAt: clock() + Math.max(error.retryAfter || 0, 5e3 * 2 ** (live.attempt || 0)), leaseUntil: 0, updatedAt: now(), message: (retry ? "Nova tentativa programada. " : "") + (error.message || "Falha desconhecida") });
+        transitionJob(live, retry ? "queued" : error.action ? "action" : "error", { attempt: (live.attempt || 0) + 1, nextAt: clock() + Math.max(error.retryAfter || 0, 5e3 * 2 ** (live.attempt || 0)), leaseUntil: 0, updatedAt: now(), message: (retry ? "Nova tentativa programada. " : "") + (error.message || "Falha desconhecida") });
       });
     }
     return true;
@@ -2481,7 +2592,7 @@
       pumping = false;
     }
     const state2 = await readState().catch(() => null);
-    const pending = state2?.jobs?.filter((job) => ["queued", "running"].includes(job.status)) || [];
+    const pending = state2?.jobs?.filter((job) => JOB_ACTIVE_STATES.includes(job.status)) || [];
     if (pending.length) {
       const target = Math.min(...pending.map((job) => job.status === "running" ? Number(job.leaseUntil) || 0 : Number(job.nextAt) || 0));
       schedule(Math.max(300, Math.min(15e3, target - Date.now() + 200)));
@@ -2516,7 +2627,7 @@
       await mutate((state2) => {
         for (const job of state2.jobs) {
           if (job.status === "interrupted" && !job.needsManualRetry) {
-            Object.assign(job, { status: "queued", nextAt: 0, updatedAt: now() });
+            transitionJob(job, "queued", { nextAt: 0, updatedAt: now() });
           }
         }
       });
@@ -2526,8 +2637,8 @@
     if (type === "cancel") {
       await mutate((state2) => {
         for (const job of state2.jobs) {
-          if (["queued", "running"].includes(job.status)) {
-            Object.assign(job, { status: "cancelled", message: "Cancelado pelo usuário", updatedAt: now() });
+          if (JOB_ACTIVE_STATES.includes(job.status)) {
+            transitionJob(job, "cancelled", { message: "Cancelado pelo usuário", updatedAt: now() });
           }
         }
       });
@@ -2673,10 +2784,10 @@
     const todayKey = today || new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Sao_Paulo" }).format(/* @__PURE__ */ new Date());
     const all = (cases || []).filter((c) => !c.archived);
     const counts = { all: all.length, me: 0, court: 0, other: 0, client: 0 };
-    for (const c of all) counts[c.workOwner in counts ? c.workOwner : "me"]++;
+    for (const c of all) counts[workOwnerOf(c)]++;
     const needle = String(query2 || "").trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR");
     const normalize = (value) => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR");
-    const rows = all.filter((c) => (owner === "all" || (c.workOwner || "me") === owner) && (!needle || normalize([
+    const rows = all.filter((c) => (owner === "all" || workOwnerOf(c) === owner) && (!needle || normalize([
       c.title,
       c.cnj,
       c.docketNumber,
@@ -2690,7 +2801,7 @@
     const byText = (a, b) => String(a || "").localeCompare(String(b || ""), "pt-BR");
     for (const group of Object.values(groups)) group.sort((a, b) => {
       if (sort === "client") return byText(clientName2(a.clientId), clientName2(b.clientId)) || byText(a.title, b.title);
-      if (sort === "status") return byText(a.workStatus || "todo", b.workStatus || "todo") || byText(a.review || "9999", b.review || "9999");
+      if (sort === "status") return byText(workStatusOf(a), workStatusOf(b)) || byText(a.review || "9999", b.review || "9999");
       return byText(a.review || "9999", b.review || "9999") || byText(a.title, b.title);
     });
     return {
@@ -2751,6 +2862,7 @@
 
   // changelog.js
   var CHANGELOG = Object.freeze([
+    { version: "0.6.8", date: "2026-11-07", title: "Máquinas de estado explícitas", summary: "Extrai a fila de consultas, o ciclo dos processos, as tarefas, as pendências e os eventos para transições declaradas, com testes de contrato e restauração de backup compatível com os estados do serviço local.", changes: ["Centraliza estados e transições em state-machines.js, reexportado pelo núcleo sem alterar a interface existente.", "Reabrir uma tarefa concluída restaura a etapa anterior em vez de voltar sempre para A fazer.", "Aceita no backup os estados parciais do serviço local, como resultado parcial e autenticação necessária.", "Adiciona testes de contrato para transições válidas, estados terminais e invariantes de pendências e eventos."] },
     { version: "0.6.7", date: "2026-11-07", title: "Identidade visual com foto circular", summary: "Substitui o monograma HB pela foto de perfil em moldura circular, mantendo o pacote local e o modo file:// sem dependências externas.", changes: ["Embute a foto no CSS local, sem arquivo externo nem dependência de rede.", "Aplica recorte circular na marca do topo, mantendo o texto acessível da marca.", "Não altera cadastros, backup ou consultas."] },
     { version: "0.6.6", date: "2026-11-07", title: "DataJud tolerante a respostas parciais e período DJEN visível", summary: "A consulta DataJud aproveita hits mesmo com timeout/falha de shards e repete uma vez erros transitórios; a busca rápida do DJEN permite escolher 30, 90, 180 ou 365 dias.", changes: ["DataJud: resposta com timed_out ou shard falho mas com hits vira resultado parcial, em vez de erro vazio.", "DataJud: uma nova tentativa para 429/500/502/503/504 transitórios antes de devolver erro.", "DJEN: seletor de período na própria busca rápida, com opções até 365 dias.", "DJEN: a mensagem mostra o intervalo real consultado."] },
     { version: "0.6.5", date: "2026-11-07", title: "Busca rápida do DJEN com período configurado", summary: "A consulta rápida do DJEN passa a usar o período configurado, de 1 a 365 dias, e informa exatamente as datas consultadas.", changes: ["Envia o período configurado na busca rápida do DJEN, em vez de fixar 30 dias.", "Valida o período entre 1 e 365 dias no serviço e devolve as datas inicial e final.", "Mostra na mensagem o intervalo real consultado e mantém a ressalva de que ausência de publicação não prova inexistência do processo."] },
@@ -5467,7 +5579,7 @@
     if (k === "home") routes.notifications = ["Notificações", "Todas as novidades dos processos, em um só lugar"];
   }
   paths.notifications = "M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9 M10 21h4";
-  var statusName = { queued: "Na fila", running: "Consultando", success: "Concluído", not_found: "Não localizado", error: "Falhou", action: "Requer ação", cancelled: "Cancelado", interrupted: "Interrompido" };
+  var statusName = JOB_STATUS_LABELS;
   var taskFilter = "open";
   var publicationEvents = [];
   var publicationLoading = false;
@@ -5733,7 +5845,7 @@
     }
   }
   function eventRecord(e) {
-    const actionId = e.key, baseline = e.remote && !e.is_new && !e.seen && !e.localIds.length;
+    const actionId = e.key, baseline = isBaselineEvent(e);
     const sourceUrl = safePublicationUrl(e.url), certificateUrl = djenCertificateUrl(e.certificateHash);
     return `<article class="record" data-publication-key="${escapeHTML(e.key)}"><div class="record-head"><div><h3 class="private">${escapeHTML(e.cnj ? formatCnj(e.cnj) : "Referência processual")}</h3><small>${escapeHTML(e.tribunal || e.source)} · ${publicationDateBR(e.date)} · ${e.kind === "publication" ? "Publicação" : "Movimentação"}</small></div><div class="line-actions">${e.publicationStatus === "Cancelada" ? tag("Publicação cancelada", "action") : ""}${baseline ? tag("Referência inicial") : !e.seen ? tag("Nova") : tag("Conferida")}${baseline ? "" : button("publication-seen", e.seen ? "Desmarcar" : "Conferir", "ghost small", actionId)}</div></div>${e.source === "djen" ? publicationDetailsHTML(e) : ""}<details><summary>${e.kind === "publication" ? "Ler teor completo da comunicação" : "Ver conteúdo e origem"}</summary><p class="private">${escapeHTML(e.text)}</p><p class="muted compact">Encontrado em ${timestamp(e.discoveredAt)}${e.sourceUpdatedAt ? " · Atualização da fonte: " + escapeHTML(e.sourceUpdatedAt) : ""}</p></details>${e.kind === "publication" ? `<div class="publication-actions">${certificateUrl ? `${button("unified-publication-official-pdf", "Baixar certidão oficial (PDF)", "primary small", actionId)}<a class="button ghost small" target="_blank" rel="noopener noreferrer" href="${escapeHTML(certificateUrl)}">Abrir certidão no CNJ</a>` : '<span class="muted compact">Certidão oficial não identificada; atualize o DJEN</span>'}${button("unified-publication-pdf", "Baixar cópia do teor (PDF)", "secondary small", actionId)}${sourceUrl ? `<a class="button ghost small" target="_blank" rel="noopener noreferrer" href="${escapeHTML(sourceUrl)}">Abrir processo na fonte</a>` : ""}</div>` : ""}<div class="meta"><span class="private">${e.caseId ? escapeHTML(caseName(e.caseId)) : "Ainda não associado a um caso"}</span>${!e.caseId && validCnj(e.cnj) ? button("unified-register-event", "Cadastrar caso com este CNJ", "ghost small", actionId) : ""}</div></article>`;
   }
@@ -6389,8 +6501,8 @@
     }
     if (event.target.dataset.stage) change((s) => {
       const c = s.cases.find((c2) => c2.id === event.target.dataset.stage);
-      if (c && STAGES[event.target.value]) {
-        c.stage = event.target.value;
+      if (c && Object.hasOwn(STAGES, event.target.value)) {
+        setCaseStage(c, event.target.value);
         c.updatedAt = now();
       }
     }, "Etapa atualizada.").catch((e) => toast(e.message));

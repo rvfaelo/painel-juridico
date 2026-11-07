@@ -1,4 +1,5 @@
 // Handlers de casos, tarefas, documentos, workflow e fila de consultas.
+import {setCaseArchived,toggleTaskDone} from './state-machines.js';
 export function createCaseActions(app) {
   return {
     'scheduled-owner': async ({id}) => {
@@ -160,12 +161,12 @@ export function createCaseActions(app) {
       return app.update([id]);
     },
     archive: async ({id}) => {
-      await app.change(s => { const c = s.cases.find(c => c.id === id); if (c) c.archived = !c.archived; }, 'Arquivo atualizado.');
+      await app.change(s => { const c = s.cases.find(c => c.id === id); if (c) setCaseArchived(c, !c.archived); }, 'Arquivo atualizado.');
       app.selected.delete(id);
       if (app.$('#editor').open) app.$('#editor').close();
       return;
     },
-    'complete-task': async ({id}) => app.change(s => { const t = s.tasks.find(t => t.id === id); if (t) t.stage = t.stage === 'done' ? 'todo' : 'done'; }, 'Tarefa atualizada.'),
+    'complete-task': async ({id}) => app.change(s => { const t = s.tasks.find(t => t.id === id); if (t) toggleTaskDone(t); }, 'Tarefa atualizada.'),
     seen: async ({id}) => {
       await app.change(s => { const e = s.events.find(e => e.id === id); if (e) e.seen = !e.seen; });
       if (app.$('#editor').open && app.state.events.find(e => e.id === id)?.caseId) app.fullDetail(app.state.events.find(e => e.id === id).caseId);

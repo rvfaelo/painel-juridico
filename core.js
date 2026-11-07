@@ -1,5 +1,8 @@
 import {validStoredDate} from './safe-dates.js';
-export const VERSION = '0.6.7';
+import {STAGES,WORK_STATUSES,WORK_OWNERS,assertCaseStage,assertCaseNotArchived,setTaskStage,setPendingDone,createPendingItem,pendingIsConsistent,ALL_JOB_STATES,JOB_ACTIVE_STATES,JOB_RESULT_STATES,JOB_FAILURE_STATES,transitionJob} from './state-machines.js';
+export {STAGES,WORK_STATUSES,WORK_OWNERS,setTaskStage,setPendingDone,createPendingItem,ALL_JOB_STATES,JOB_ACTIVE_STATES,JOB_RESULT_STATES,JOB_FAILURE_STATES,transitionJob};
+export {JOB_STATES,SERVICE_JOB_STATES,JOB_TRANSITIONS,JOB_STATUS_LABELS,setCaseStage,setCaseArchived,toggleTaskDone,previousTaskStage,workOwnerOf,workStatusOf,isBaselineEvent,notificationState,canTransitionJob} from './state-machines.js';
+export const VERSION = '0.6.8';
 export function taskView(tasks,query='',filter='open'){
   if(!['open','done','all'].includes(filter))throw Error('Filtro de tarefas inválido.');
   const fold=v=>String(v??'').normalize('NFD').replace(/\p{M}/gu,'').toLocaleLowerCase('pt-BR');
@@ -12,9 +15,6 @@ export const SCHEMA = 2;
 // Public credential published by CNJ, verified on 2026-11-05. Not a personal secret.
 // The user can replace it if CNJ rotates the key.
 export const PUBLIC_DATAJUD_KEY = 'cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw==';
-export const STAGES = {todo:'A fazer',doing:'Fazendo',ready:'Pronto para protocolar',done:'Concluído'};
-export const WORK_OWNERS = Object.freeze({me:'Comigo',court:'Com o juízo',other:'Parte contrária',client:'Com o cliente'});
-export const WORK_STATUSES = Object.freeze({todo:'A fazer',doing:'Fazendo',ready:'Pronto para protocolar',done:'Feito'});
 export const JUDICIAL_SYSTEMS = { '':'Não identificado',eproc:'eproc',pje:'PJe',projudi:'Projudi',portal:'Consulta processual TJRJ'};
 export const COURTS = {'':'Não informado',tjrj:'TJRJ',trf2:'TRF2',tjsp:'TJSP',stj:'STJ',stf:'STF',other:'Outro tribunal'};
 export const COURT_LEVELS = {'':'Não informado',first:'1º grau',second:'2º grau',jec:'Juizado especial estadual',state_panel:'Turma recursal estadual',jef:'Juizado especial federal (JEF)',federal_panel:'Turma recursal federal',superior:'Tribunal superior',other:'Outro grau'};
@@ -62,7 +62,6 @@ export function validateCaseHierarchy(state,caseId,fields) {
 export const MANUAL_CHECK_RESULTS = {no_changes:'Sem novidade identificada',change:'Movimentação identificada',attention:'Requer acompanhamento',unavailable:'Consulta não concluída'};
 export const COVERAGE_RESULTS = {match:'Coincidente na amostra',difference:'Divergência observada',unavailable:'Fonte indisponível',inconclusive:'Comparação inconclusiva'};
 export const TABLES = ['clients','cases','tasks','appointments','fees','events','jobs','payments','documents','coverageSamples'];
-export const JOB_STATES = ['queued','running','success','not_found','error','action','cancelled','interrupted'];
 export const uid = () => crypto.randomUUID();
 export const now = () => new Date().toISOString();
 export const digits = value => String(value ?? '').replace(/\D/g,'');
@@ -84,7 +83,7 @@ export function validDateTime(value) {
 function caseForWorkflow(state,caseId){
   const c=state.cases.find(row=>row.id===caseId);
   if(!c)throw Error('Processo não encontrado para acompanhamento.');
-  if(c.archived)throw Error('Desarquive o processo para editar o acompanhamento.');
+  assertCaseNotArchived(c);
   return c;
 }
 export function updateCaseWorkflow(state,caseId,input){
@@ -106,14 +105,14 @@ export function addCasePending(state,caseId,title){
   if(typeof title!=='string'||!title.trim()||title.length>240)throw Error('Descreva a pendência em até 240 caracteres.');
   if(!Array.isArray(c.pendingItems))c.pendingItems=[];
   if(c.pendingItems.length>=80)throw Error('Máximo de 80 pendências por processo.');
-  const item={id:uid(),title:clean(title,240),done:false,createdAt:now(),completedAt:''};
+  const item=createPendingItem({id:uid(),title:clean(title,240),createdAt:now()});
   c.pendingItems.push(item);c.updatedAt=now();return item;
 }
 export function toggleCasePending(state,caseId,pendingId){
   const c=caseForWorkflow(state,caseId);
   const item=(c.pendingItems||[]).find(row=>row.id===pendingId);
   if(!item)throw Error('Pendência não encontrada neste processo.');
-  item.done=!item.done;item.completedAt=item.done?now():'';c.updatedAt=now();return item;
+  setPendingDone(item,!item.done,now());c.updatedAt=now();return item;
 }
 export function removeCasePending(state,caseId,pendingId){
   const c=caseForWorkflow(state,caseId);
@@ -169,7 +168,7 @@ export function registerManualCheck(state,input) {
 export function latestCoverageJob(state,caseId,source) {
   const c=state.cases.find(x=>x.id===caseId);
   if(!c||!validCnj(c.cnj)||!['djen','datajud'].includes(source))return null;
-  return [...state.jobs].reverse().find(j=>j.caseId===c.id&&j.cnj===c.cnj&&j.source===source&&['success','not_found','action','error','interrupted'].includes(j.status))||null;
+  return [...state.jobs].reverse().find(j=>j.caseId===c.id&&j.cnj===c.cnj&&j.source===source&&JOB_RESULT_STATES.includes(j.status))||null;
 }
 export function registerCoverageSample(state,input) {
   const c=state.cases.find(x=>x.id===input.caseId);
@@ -236,28 +235,28 @@ export function pendingManualReviews(state) {
   }).sort((a,b)=>b.checkedAt.localeCompare(a.checkedAt));
 }
 export function pendingSourceIssues(state) {
-  const issues=[],terminal=new Set(['success','not_found','action','error','interrupted']);
+  const issues=[],terminal=new Set(JOB_RESULT_STATES);
   for(const c of state.cases){
     if(c.archived||!c.cnj)continue;
     for(const source of ['datajud','djen']){
       if(!state.settings[source])continue;
       const jobs=state.jobs.filter(j=>j.caseId===c.id&&j.cnj===c.cnj&&j.source===source);
       const latest=[...jobs].reverse().find(j=>terminal.has(j.status));
-      if(!latest||!['action','error','interrupted'].includes(latest.status))continue;
+      if(!latest||!JOB_FAILURE_STATES.includes(latest.status))continue;
       issues.push({jobId:latest.id,caseId:c.id,cnj:c.cnj,source,status:latest.status,
         message:latest.message||'Consulta não concluída',updatedAt:latest.updatedAt,
-        partial:latest.count>0,retrying:jobs.some(j=>['queued','running'].includes(j.status))});
+        partial:latest.count>0,retrying:jobs.some(j=>JOB_ACTIVE_STATES.includes(j.status))});
     }
   }
   return issues.sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||''));
 }
 export function retrySourceJob(state,jobId) {
   const j=state.jobs.find(x=>x.id===jobId);
-  if(!j||!j.caseId||!['action','error','interrupted'].includes(j.status))throw Error('Consulta sem falha elegível para nova tentativa.');
+  if(!j||!j.caseId||!JOB_FAILURE_STATES.includes(j.status))throw Error('Consulta sem falha elegível para nova tentativa.');
   const c=state.cases.find(x=>x.id===j.caseId);
   if(!c||c.archived||!c.cnj||c.cnj!==j.cnj)throw Error('O processo foi alterado ou arquivado.');
   if(!state.settings[j.source])throw Error('A fonte está desativada nas configurações.');
-  const latest=[...state.jobs].reverse().find(x=>x.caseId===c.id&&x.cnj===c.cnj&&x.source===j.source&&['success','not_found','action','error','interrupted'].includes(x.status));
+  const latest=[...state.jobs].reverse().find(x=>x.caseId===c.id&&x.cnj===c.cnj&&x.source===j.source&&JOB_RESULT_STATES.includes(x.status));
   if(latest?.id!==j.id)throw Error('Existe um resultado mais recente para esta fonte.');
   if(j.source==='djen'&&(j.periodStart||j.periodEnd)&&(!validDay(j.periodStart)||!validDay(j.periodEnd)||j.periodStart>j.periodEnd))throw Error('Período da consulta anterior inválido. Verifique o histórico antes de repetir.');
   const added=enqueue(state,[c.id],[j.source]);
@@ -272,18 +271,18 @@ export function pendingOabIssue(state) {
   const {oab,ufOab,djen}=state.settings;
   if(!djen||!/^\d{1,8}[A-Za-z]?$/.test(oab)||!/^[A-Z]{2}$/.test(ufOab))return null;
   const jobs=state.jobs.filter(j=>!j.caseId&&j.source==='djen'&&j.oab===oab&&j.ufOab===ufOab);
-  const terminal=new Set(['success','not_found','action','error','interrupted']);
+  const terminal=new Set(JOB_RESULT_STATES);
   const latest=[...jobs].reverse().find(j=>terminal.has(j.status));
-  if(!latest||!['action','error','interrupted'].includes(latest.status))return null;
+  if(!latest||!JOB_FAILURE_STATES.includes(latest.status))return null;
   return {jobId:latest.id,oab,ufOab,status:latest.status,message:latest.message||'Consulta não concluída',
-    updatedAt:latest.updatedAt,partial:latest.count>0,retrying:jobs.some(j=>['queued','running'].includes(j.status))};
+    updatedAt:latest.updatedAt,partial:latest.count>0,retrying:jobs.some(j=>JOB_ACTIVE_STATES.includes(j.status))};
 }
 export function retryOabJob(state,jobId) {
   const j=state.jobs.find(x=>x.id===jobId);
-  if(!j||j.caseId||j.source!=='djen'||!['action','error','interrupted'].includes(j.status))throw Error('Busca por OAB sem falha elegível para nova tentativa.');
+  if(!j||j.caseId||j.source!=='djen'||!JOB_FAILURE_STATES.includes(j.status))throw Error('Busca por OAB sem falha elegível para nova tentativa.');
   if(!state.settings.djen)throw Error('DJEN está desativado nas configurações.');
   if(j.oab!==state.settings.oab||j.ufOab!==state.settings.ufOab)throw Error('A OAB configurada foi alterada. Confira os dados antes de tentar novamente.');
-  const latest=[...state.jobs].reverse().find(x=>!x.caseId&&x.source==='djen'&&x.oab===j.oab&&x.ufOab===j.ufOab&&['success','not_found','action','error','interrupted'].includes(x.status));
+  const latest=[...state.jobs].reverse().find(x=>!x.caseId&&x.source==='djen'&&x.oab===j.oab&&x.ufOab===j.ufOab&&JOB_RESULT_STATES.includes(x.status));
   if(latest?.id!==j.id)throw Error('Existe um resultado mais recente para esta OAB.');
   return enqueueOab(state,{periodStart:j.periodStart,periodEnd:j.periodEnd});
 }
@@ -332,7 +331,7 @@ export function cnjChangeImpact(state,caseId) {
     documents:state.documents.filter(d=>d.caseId===caseId).length,
     manualChecks:(c.manualChecks||[]).filter(x=>sameManualIdentity(c,x)).length,
     events:state.events.filter(e=>e.caseId===caseId&&digits(e.cnj)===c.cnj).length,
-    jobs:state.jobs.filter(j=>j.caseId===caseId&&j.cnj===c.cnj&&['queued','running'].includes(j.status)).length
+    jobs:state.jobs.filter(j=>j.caseId===caseId&&j.cnj===c.cnj&&JOB_ACTIVE_STATES.includes(j.status)).length
   };
 }
 export function saveEntity(state,table,input) {
@@ -373,7 +372,7 @@ export function saveEntity(state,table,input) {
     }else if(old&&old.cnj!==cnj)delete row.datajudDetails;
     if(old&&(old.cnj!==cnj||String(old.docketNumber||'')!==docketNumber||manualCheckCourt(old)!==manualCheckCourt(row)))row.manualCheckedAt='';
     if(!row.title)throw Error('Informe um título para o caso.');
-    if(!STAGES[row.stage])throw Error('Etapa inválida.');
+    assertCaseStage(row.stage);
     if(row.clientId&&!state.clients.some(x=>x.id===row.clientId))throw Error('Cliente não encontrado.');
   }
   if(table==='tasks') {
@@ -383,8 +382,9 @@ export function saveEntity(state,table,input) {
       if(!linked?.manualChecks?.some(x=>x.id===manualCheckId))throw Error('Conferência de origem não encontrada neste processo.');
       if(state.tasks.some(t=>t.id!==id&&t.manualCheckId===manualCheckId))throw Error('Já existe uma tarefa vinculada a esta conferência.');
     }
-    Object.assign(row,{title:clean(input.title,240),caseId:input.caseId||'',due:clean(input.due,10),stage:input.stage||'todo',notes:clean(input.notes),manualCheckId});
-    if(!row.title||!STAGES[row.stage])throw Error('Informe tarefa e etapa válidas.');
+    Object.assign(row,{title:clean(input.title,240),caseId:input.caseId||'',due:clean(input.due,10),notes:clean(input.notes),manualCheckId});
+    if(!row.title)throw Error('Informe tarefa e etapa válidas.');
+    setTaskStage(row,input.stage||'todo',{previousStage:old?.previousStage});
   }
   if(table==='appointments') {
     Object.assign(row,{title:clean(input.title,240),caseId:input.caseId||'',when:clean(input.when,16),kind:clean(input.kind,40),notes:clean(input.notes)});
@@ -404,8 +404,8 @@ export function saveEntity(state,table,input) {
     if(old&&old.cnj!==row.cnj){
       // An older process number must not leave external results on the new case.
       row.sourceInfo={};
-      for(const job of state.jobs)if(job.caseId===row.id&&job.cnj!==row.cnj&&['queued','running'].includes(job.status)){
-        Object.assign(job,{status:'cancelled',message:'Consulta cancelada: CNJ do processo foi corrigido.',updatedAt:now(),leaseUntil:0});
+      for(const job of state.jobs)if(job.caseId===row.id&&job.cnj!==row.cnj&&JOB_ACTIVE_STATES.includes(job.status)){
+        transitionJob(job,'cancelled',{message:'Consulta cancelada: CNJ do processo foi corrigido.',updatedAt:now(),leaseUntil:0});
       }
     }
     reconcileEventLinks(state);
@@ -445,7 +445,7 @@ export function enqueue(state,caseIds,onlySources=['datajud','djen']) {
   let added=0;
   for(const c of selected)for(const source of onlySources) {
     if(!state.settings[source])continue;
-    if(state.jobs.some(x=>x.caseId===c.id&&x.cnj===c.cnj&&x.source===source&&['queued','running'].includes(x.status)))continue;
+    if(state.jobs.some(x=>x.caseId===c.id&&x.cnj===c.cnj&&x.source===source&&JOB_ACTIVE_STATES.includes(x.status)))continue;
     state.jobs.push({id:uid(),runId:uid(),caseId:c.id,cnj:c.cnj,source,status:'queued',createdAt:now(),updatedAt:now(),cursor:null,attempt:0,added:0,count:0,message:'Na fila',leaseUntil:0,nextAt:0});added++;
   }
   return added;
@@ -453,14 +453,14 @@ export function enqueue(state,caseIds,onlySources=['datajud','djen']) {
 export function enqueueOab(state,options={}) {
   if(!state.settings.djen)throw Error('DJEN está desativado. Habilite a fonte em Fontes e ajustes antes de buscar por OAB.');
   if(!/^\d{1,8}[A-Za-z]?$/.test(state.settings.oab)||!/^[A-Z]{2}$/.test(state.settings.ufOab))throw Error('Configure OAB e UF antes da busca.');
-  if(state.jobs.some(x=>x.oab===state.settings.oab&&x.ufOab===state.settings.ufOab&&['queued','running'].includes(x.status)))return 0;
+  if(state.jobs.some(x=>x.oab===state.settings.oab&&x.ufOab===state.settings.ufOab&&JOB_ACTIVE_STATES.includes(x.status)))return 0;
   if(options.periodStart!==undefined&&options.periodStart!==''&&!validDay(options.periodStart))throw Error('Período inicial da consulta inválido.');
   if(options.periodEnd!==undefined&&options.periodEnd!==''&&!validDay(options.periodEnd))throw Error('Período final da consulta inválido.');
   if(options.periodStart&&options.periodEnd&&options.periodStart>options.periodEnd)throw Error('Período da consulta invertido.');
   state.jobs.push({id:uid(),caseId:'',source:'djen',oab:state.settings.oab,ufOab:state.settings.ufOab,status:'queued',createdAt:now(),updatedAt:now(),cursor:null,attempt:0,added:0,count:0,message:'Na fila',leaseUntil:0,nextAt:0,...options});
   return 1;
 }
-export const backup = state => ({format:'pauta-backup',version:2,createdAt:now(),state:{...structuredClone(state),jobs:state.jobs.map(x=>['queued','running'].includes(x.status)?{...x,status:'interrupted',needsManualRetry:true,leaseUntil:0,message:'Pendente no momento do backup. Revise e repita manualmente; não há retomada automática após restauração.'}:x),settings:{...state.settings,datajudKey:''}}});
+export const backup = state => ({format:'pauta-backup',version:2,createdAt:now(),state:{...structuredClone(state),jobs:state.jobs.map(x=>JOB_ACTIVE_STATES.includes(x.status)?{...x,status:'interrupted',needsManualRetry:true,leaseUntil:0,message:'Pendente no momento do backup. Revise e repita manualmente; não há retomada automática após restauração.'}:x),settings:{...state.settings,datajudKey:''}}});
 const backupText=(v,max=200000)=>typeof v==='string'&&v.length<=max;
 const backupDay=v=>!v||validDay(v);
 
@@ -483,7 +483,7 @@ function validateBackupCoverage(s,caseById,jobById) {
     for(const [field,options] of [['court',COURTS],['courtLevel',COURT_LEVELS],['processSystem',PROCESS_SYSTEMS]]){
       if(Object.hasOwn(item,field)&&(!backupText(item[field],40)||!Object.hasOwn(options,item[field])))throw Error('Classificação da amostra de cobertura inválida no backup.');
     }
-    if(!c||!validCnj(item.cnj)||!['djen','datajud'].includes(item.source)||!Object.hasOwn(COVERAGE_RESULTS,item.result)||!validDay(item.referenceDate)||item.referenceDate>dateKey()||!backupText(item.notes,1500)||item.notes.trim().length<12||typeof item.checkedAt!=='string'||!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(item.checkedAt)||!Number.isFinite(Date.parse(item.checkedAt))||new Date(item.checkedAt).toISOString()!==item.checkedAt||item.jobId!==''&&(!j||j.caseId!==item.caseId||j.cnj!==item.cnj||j.source!==item.source||!['success','not_found','error','action','interrupted'].includes(j.status))||['match','difference'].includes(item.result)&&!['success','not_found'].includes(j?.status))throw Error('Amostra de cobertura inválida no backup.');
+    if(!c||!validCnj(item.cnj)||!['djen','datajud'].includes(item.source)||!Object.hasOwn(COVERAGE_RESULTS,item.result)||!validDay(item.referenceDate)||item.referenceDate>dateKey()||!backupText(item.notes,1500)||item.notes.trim().length<12||typeof item.checkedAt!=='string'||!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(item.checkedAt)||!Number.isFinite(Date.parse(item.checkedAt))||new Date(item.checkedAt).toISOString()!==item.checkedAt||item.jobId!==''&&(!j||j.caseId!==item.caseId||j.cnj!==item.cnj||j.source!==item.source||!JOB_RESULT_STATES.includes(j.status))||['match','difference'].includes(item.result)&&!['success','not_found'].includes(j?.status))throw Error('Amostra de cobertura inválida no backup.');
   }
 }
 
@@ -496,7 +496,7 @@ function validateBackupPendingItems(c) {
   if(!Array.isArray(c.pendingItems)||c.pendingItems.length>80)throw Error('Pendências do processo inválidas no backup.');
   const pendingIds=new Set();
   for(const item of c.pendingItems){
-    if(!item||typeof item.id!=='string'||!item.id||pendingIds.has(item.id)||!backupText(item.title,240)||!item.title.trim()||typeof item.done!=='boolean'||!backupText(item.createdAt,40)||!Number.isFinite(Date.parse(item.createdAt))||!backupText(item.completedAt,40)||item.completedAt&&!Number.isFinite(Date.parse(item.completedAt))||item.done!==!!item.completedAt)throw Error('Pendência inválida no backup.');
+    if(!item||typeof item.id!=='string'||!item.id||pendingIds.has(item.id)||!backupText(item.title,240)||!item.title.trim()||!pendingIsConsistent(item)||!backupText(item.createdAt,40)||!Number.isFinite(Date.parse(item.createdAt))||!backupText(item.completedAt,40)||item.completedAt&&!Number.isFinite(Date.parse(item.completedAt)))throw Error('Pendência inválida no backup.');
     pendingIds.add(item.id);
   }
 }
@@ -550,7 +550,7 @@ function validateBackupCaseLinks(s,caseIds) {
 function validateBackupTasks(s,caseById) {
   const usedManualChecks=new Set();
   for(const t of s.tasks){
-    if(!backupText(t.title,240)||!t.title||!STAGES[t.stage]||!backupDay(t.due))throw Error('Tarefa inválida.');
+    if(!backupText(t.title,240)||!t.title||!STAGES[t.stage]||!backupDay(t.due)||t.previousStage!==undefined&&(t.stage!=='done'||!Object.hasOwn(STAGES,t.previousStage)||t.previousStage==='done'))throw Error('Tarefa inválida.');
     if(t.manualCheckId!==undefined){
       if(!backupText(t.manualCheckId,100))throw Error('Origem da tarefa inválida.');
       if(t.manualCheckId){
@@ -595,7 +595,7 @@ function validateBackupDocuments(s,caseIds) {
 }
 
 function validateBackupJobs(s) {
-  for(const j of s.jobs)if(!JOB_STATES.includes(j.status)||!['datajud','djen'].includes(j.source)||!backupText(j.updatedAt,40)||Number.isNaN(Date.parse(j.updatedAt))||j.needsManualRetry!==undefined&&typeof j.needsManualRetry!=='boolean')throw Error('Consulta inválida.');
+  for(const j of s.jobs)if(!ALL_JOB_STATES.includes(j.status)||!['datajud','djen'].includes(j.source)||!backupText(j.updatedAt,40)||Number.isNaN(Date.parse(j.updatedAt))||j.needsManualRetry!==undefined&&typeof j.needsManualRetry!=='boolean')throw Error('Consulta inválida.');
 }
 
 function validateBackupJobPeriods(s) {
@@ -615,7 +615,7 @@ function validateBackupEvents(s,caseById) {
 function finalizeBackup(s) {
   const result=structuredClone(s);
   result.settings={...emptyState().settings,...s.settings,datajudKey:''};
-  result.jobs=result.jobs.map(x=>({...x,status:['queued','running'].includes(x.status)?'interrupted':x.status}));
+  result.jobs=result.jobs.map(x=>({...x,status:JOB_ACTIVE_STATES.includes(x.status)?'interrupted':x.status}));
   return result;
 }
 
@@ -663,7 +663,7 @@ export function deleteCases(state, ids) {
   for(const table of ['appointments','fees','events'])for(const row of state[table])if(keys.has(row.caseId))row.caseId='';
   for(const job of state.jobs)if(keys.has(job.caseId)){
     job.caseId='';
-    if(['queued','running'].includes(job.status))Object.assign(job,{status:'cancelled',message:'Consulta cancelada: cadastro excluído.',updatedAt:stamp,leaseUntil:0});
+    if(JOB_ACTIVE_STATES.includes(job.status))transitionJob(job,'cancelled',{message:'Consulta cancelada: cadastro excluído.',updatedAt:stamp,leaseUntil:0});
   }
   for(const c of state.cases)if(keys.has(c.parentCaseId))c.parentCaseId='';
   return impact;
