@@ -114,6 +114,13 @@ for (const [name, [route, action]] of Object.entries(editRoutes)) {
   await page.locator('#editor').waitFor({state: 'hidden'});
 }
 
+await page.evaluate(() => { location.hash = '#cases'; });
+await page.waitForFunction(() => document.querySelector('#page-title')?.textContent === 'Processos');
+await page.locator('.cases-list .cell-title').first().click();
+await page.locator('#editor').waitFor({state: 'visible'});
+await writeFile(path.join(out, 'dialog-case-detail.html'),
+  await page.locator('#dialog-body').evaluate(element => element.innerHTML), 'utf8');
+
 await browser.close();
 if (errors.length) throw Error(errors.join('\n'));
 console.log(JSON.stringify({root, out, files: Object.keys(routes).length + Object.keys(editRoutes).length}));

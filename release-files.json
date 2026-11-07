@@ -82,6 +82,7 @@
   "update-dependencies.json",
   "update-trust.json",
   "view-boards.js",
+  "view-case-detail.js",
   "view-content.js",
   "view-editor.js",
   "view-settings-events.js",

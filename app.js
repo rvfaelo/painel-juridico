@@ -7,6 +7,7 @@ import {createBoardViews} from './view-boards.js';
 import {createSourceView} from './view-sources.js';
 import {createEditorView} from './view-editor.js';
 import {createSettingsEvents} from './view-settings-events.js';
+import {createCaseDetailView} from './view-case-detail.js';
 import {contentHTML} from './view-content.js';
 import {organizePanel} from './panel-organization.js';
 import {schedulePanel,scheduleRow} from './schedule-panel.js';
@@ -190,7 +191,7 @@ function paymentDialog(id){
   const entries=state.payments.filter(p=>p.feeId===id).sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
   dialog('Recebimentos · '+fee.title,`<p class="subheading private">Total ${money(fee.amount)} · Recebido ${money(fee.paid)} · Saldo ${money(fee.amount-fee.paid)}</p>${fee.paid<fee.amount?`<form id="payment-form" data-id="${esc(id)}"><div class="form-grid">${field('Valor recebido (R$)','amount','','number',false,`required min="0.01" max="${((fee.amount-fee.paid)/100).toFixed(2)}" step="0.01"`)}${field('Data do recebimento','date',dateKey(),'date',false,'required')}${area('Observações','notes')}</div><p class="form-error" role="alert"></p><div class="form-actions"><button class="button primary" type="submit">Registrar recebimento</button></div></form>`:'<div class="intro-note">Honorário integralmente recebido.</div>'}<div class="detail-section"><h3>Histórico de lançamentos</h3>${entries.map(p=>`<article class="record"><div class="record-head"><div><h3>${p.kind==='reversal'?'Estorno':'Recebimento'} · <span class="private">${p.kind==='reversal'?'− ':''}${money(p.amount)}</span></h3><small>${date(p.date)}${p.opening?' · Saldo importado da 0.1':''}</small></div>${p.kind==='receipt'?(state.payments.some(x=>x.reverses===p.id)?tag('Estornado'):button('reverse-payment','Estornar','ghost small',p.id)):tag('Estorno')}</div><p class="private">${esc(p.notes||'Sem observações')}</p></article>`).join('')||'<p class="muted">Nenhum recebimento registrado.</p>'}</div>`,true);
 }
-function documentsSection(id){const items=state.documents.filter(d=>d.caseId===id);return `<div class="detail-section"><div class="panel-heading"><h3>Anexos · ${items.length}</h3>${button('attach','Anexar documento','secondary small',id)}</div><p class="muted compact">PDF, PNG, JPEG, WebP ou TXT UTF-8. Até 5 MB por arquivo e 25 MB no total. Armazenamento local, incluído no backup.</p>${items.map(d=>`<article class="record"><div class="record-head"><div><strong class="private">${esc(d.name)}</strong><small>${(d.size/1024).toFixed(1)} KB · ${date(d.createdAt)}</small></div><div class="line-actions">${button('download-document','Baixar','secondary small',d.id)}${button('remove-document','Remover','ghost small',d.id)}</div></div></article>`).join('')||'<p class="muted">Nenhum documento anexado.</p>'}</div>`;}
+
 function officialSection(c){const info=officialConsultation(c);if(!info)return c.cnj||c.docketNumber?'<div class="detail-section"><h3>Consulta oficial</h3><p class="muted compact">Selecione um tribunal atendido na edição do processo para abrir os portais de consulta manual. Nenhuma consulta será executada automaticamente.</p></div>':'';
   const history=(c.manualChecks||[]).filter(x=>sameManualIdentity(c,x)).slice().reverse();
   return `<div class="detail-section"><h3>Conferência no ${esc(info.courtLabel)}</h3><p class="muted compact">Sistema informado: <strong>${esc((c.processSystem?PROCESS_SYSTEMS[c.processSystem]:JUDICIAL_SYSTEMS[c.judicialSystem||''])||'Não informado')}</strong>. Abra o portal correspondente e pesquise manualmente pelo CNJ, registro próprio ou origem, conforme os campos aceitos. Os links abrem formulários de consulta; não buscam nem importam resultados automaticamente.</p><div class="links">${info.number?button('copy-cnj','Copiar número CNJ','secondary small',c.id):''}${info.docket?button('copy-docket','Copiar registro adicional','secondary small',c.id):''}${info.links.map((link,i)=>`<a class="button ${i===0&&(c.processSystem||c.judicialSystem)?'primary':'secondary'} small" href="${esc(link.url)}" target="_blank" rel="noopener noreferrer">${esc(link.label)} ↗</a>`).join('')}</div><p class="muted compact">${info.number?`Número CNJ: <span class="private">${esc(info.number)}</span>.`:''}${info.docket?` Registro adicional: <span class="private">${esc(info.docket)}</span>.`:''} ${c.manualCheckedAt?'Última conferência manual registrada: '+timestamp(c.manualCheckedAt)+'.':'Nenhuma conferência manual registrada.'} O sistema correto precisa ser confirmado no tribunal.</p><div class="links">${button('manual-check','Registrar resultado da conferência','secondary small',c.id)}</div><p class="muted compact">Registros manuais são declarações do usuário; não substituem a fonte oficial, não alteram movimentações importadas nem calculam prazos.</p><h3>Histórico de conferências · ${history.length}</h3>${history.slice(0,10).map(x=>`<article class="record"><div class="record-head"><strong>${esc(MANUAL_CHECK_RESULTS[x.result]||'Conferência')}</strong><small>${timestamp(x.checkedAt)} · ${esc(PROCESS_SYSTEMS[x.source]||JUDICIAL_SYSTEMS[x.source]||x.source)}</small></div>${x.notes?`<p class="private">${esc(x.notes)}</p>`:''}</article>`).join('')||'<p class="muted compact">Nenhuma conferência detalhada registrada.</p>'}${history.length>10?'<p class="muted compact">Exibindo as últimas 10 conferências. O histórico completo permanece no backup.</p>':''}</div>`;
@@ -206,10 +207,7 @@ function workflowSection(c){
   return `<section class="detail-section case-workflow" id="case-workflow" aria-label="Próximo passo, responsável e pendências"><div class="case-workflow-heading"><div><h3>Próximo passo e revisão</h3><p class="muted compact">Organização interna. Não representa intimação lida nem prazo processual calculado.</p></div><div class="line-actions">${c.reviewedAt?tag(reviewed?'Visto hoje':'Último visto: '+date(dateKey(new Date(c.reviewedAt))),'success'):tag('Ainda não visto')}${!readonly?button('workflow-viewed','Marcar visto hoje','secondary small',c.id):''}</div></div>${readonly?'<p class="notice">Processo arquivado: desarquive para editar próximos passos e pendências.</p>':''}<form id="workflow-form" data-id="${esc(c.id)}"><div class="form-grid"><label class="field full">Próximo passo<textarea name="nextStep" maxlength="500" rows="2" placeholder="Ex.: Aguardar comprovante das custas" ${readonly?'disabled':''}>${esc(c.nextStep||'')}</textarea></label>${select('Situação do passo','workStatus',Object.entries(WORK_STATUSES),c.workStatus||'todo')}${select('Com quem está a bola?','workOwner',Object.entries(WORK_OWNERS),c.workOwner||'me')}${field('Revisar em','review',c.review,'date')}</div>${!readonly?'<div class="form-actions"><button class="button primary" type="submit">Salvar acompanhamento</button></div>':''}<p class="form-error" role="alert"></p></form><div class="case-pending-heading"><h3>Pendências · ${remaining} aberta(s)</h3><small>${items.length} registrada(s)</small></div>${list}${!readonly?`<form id="workflow-pending-form" data-id="${esc(c.id)}" class="case-pending-add"><label class="field">Nova pendência<input name="title" type="text" required maxlength="240" autocomplete="off" placeholder="Ex.: Pedir comprovante ao cliente"></label><button type="submit" class="button secondary">Adicionar pendência</button><p class="form-error" role="alert"></p></form>`:''}</section>`;
 }
 function fullDetail(id){detail(id);const c=state.cases.find(c=>c.id===id);if(c){if(c.archived)$('#workflow-form')?.querySelectorAll('input,select,textarea,button').forEach(field=>{field.disabled=true;});$('#dialog-body').insertAdjacentHTML('beforeend',documentsSection(id));void loadIntegratedCase(id);}}
-function relatedProceedings(c){
- const parent=state.cases.find(x=>x.id===c.parentCaseId),children=state.cases.filter(x=>x.parentCaseId===c.id);
- return `<div class="detail-section"><h3>Tramitação e vínculos</h3><p class="private">${esc(jurisdictionLabel(c)||'Tribunal e grau não informados')}</p>${c.docketNumber?`<p class="private">Registro adicional: ${esc(c.docketNumber)}</p>`:''}${c.originReference?`<p class="private">Referência de origem: ${esc(c.originReference)}</p>`:''}${parent?`<p class="private">Origem: ${button('detail','Abrir '+esc(parent.title),'secondary small',parent.id)}</p>`:''}${children.map(x=>`<p class="private">Relacionado: ${button('detail','Abrir '+esc(x.title),'secondary small',x.id)}</p>`).join('')}<p class="muted compact">Vínculos manuais. Eventos e documentos permanecem associados ao processo original.</p></div>`;
-}
+
 function eventRecord(e){const actionId=e.key,baseline=e.remote&&!e.is_new&&!e.seen&&!e.localIds.length;const sourceUrl=safePublicationUrl(e.url),certificateUrl=djenCertificateUrl(e.certificateHash);return `<article class="record" data-publication-key="${esc(e.key)}"><div class="record-head"><div><h3 class="private">${esc(e.cnj?formatCnj(e.cnj):'Referência processual')}</h3><small>${esc(e.tribunal||e.source)} · ${publicationDateBR(e.date)} · ${e.kind==='publication'?'Publicação':'Movimentação'}</small></div><div class="line-actions">${e.publicationStatus==='Cancelada'?tag('Publicação cancelada','action'):''}${baseline?tag('Referência inicial'):!e.seen?tag('Nova'):tag('Conferida')}${baseline?'':button('publication-seen',e.seen?'Desmarcar':'Conferir','ghost small',actionId)}</div></div>${e.source==='djen'?publicationDetailsHTML(e):''}<details><summary>${e.kind==='publication'?'Ler teor completo da comunicação':'Ver conteúdo e origem'}</summary><p class="private">${esc(e.text)}</p><p class="muted compact">Encontrado em ${timestamp(e.discoveredAt)}${e.sourceUpdatedAt?' · Atualização da fonte: '+esc(e.sourceUpdatedAt):''}</p></details>${e.kind==='publication'?`<div class="publication-actions">${certificateUrl?`${button('unified-publication-official-pdf','Baixar certidão oficial (PDF)','primary small',actionId)}<a class="button ghost small" target="_blank" rel="noopener noreferrer" href="${esc(certificateUrl)}">Abrir certidão no CNJ</a>`:'<span class="muted compact">Certidão oficial não identificada; atualize o DJEN</span>'}${button('unified-publication-pdf','Baixar cópia do teor (PDF)','secondary small',actionId)}${sourceUrl?`<a class="button ghost small" target="_blank" rel="noopener noreferrer" href="${esc(sourceUrl)}">Abrir processo na fonte</a>`:''}</div>`:''}<div class="meta"><span class="private">${e.caseId?esc(caseName(e.caseId)):'Ainda não associado a um caso'}</span>${!e.caseId&&validCnj(e.cnj)?button('unified-register-event','Cadastrar caso com este CNJ','ghost small',actionId):''}</div></article>`;}
 function publications(){
   const {counts,total,rows,hasMore}=publicationView(unifiedPublications(state,publicationEvents),query,publicationFilter,publicationLimit);
@@ -303,25 +301,7 @@ function renderCnjChangeWarning(){
 function edit(table,id='',preset={}){return viewApp.edit(table,id,preset);}
 
 let activeDetailCaseId='',localHistoryPage=1;
-function localHistoryHTML(events){
-  if(!events.length)return '<p class="muted">As informações encontradas nas fontes aparecerão aqui.</p>';
-  const slice=historyPage(events,localHistoryPage);
-  localHistoryPage=slice.page;
-  const entries=slice.items.map(e=>{
-    const label=e.kind==='publication'?'Publicação':'Movimentação';
-    const url=safePublicationUrl(e.url),certificate=djenCertificateUrl(e.certificateHash);
-    const summary=String(e.text||'Descrição não informada').replace(/\s+/gu,' ').slice(0,145);
-    return `<article class="case-history-event"><details><summary class="case-history-summary"><time class="case-history-date">${esc(publicationDateBR(e.date))}</time><span class="integrated-source">${esc(e.tribunal||e.source||'Fonte não informada')}</span><span class="integrated-degree">${label}</span>${e.publicationStatus==='Cancelada'?tag('Publicação cancelada','action'):''}${!e.seen?'<span class="integrated-pending-tag">Por conferir</span>':''}<span class="case-history-snippet private">${esc(summary)}</span><span class="integrated-event-caret" aria-hidden="true">⌄</span></summary><div class="case-history-extra private"><p>${esc(e.text||'Descrição não informada')}</p>${e.source==='djen'?publicationDetailsHTML(e):''}<p class="muted compact">Identificado em ${timestamp(e.discoveredAt)}${e.sourceUpdatedAt?' · Atualização da fonte: '+esc(e.sourceUpdatedAt):''}</p><div class="case-history-actions">${button('seen',e.seen?'Desmarcar conferência':'Marcar como conferido','ghost small',e.id)}${e.kind==='publication'?button('publication-pdf','Baixar cópia (PDF)','secondary small',e.id)+(certificate?button('publication-official-pdf','Baixar certidão oficial','secondary small',e.id):''):''}${url?`<a href="${esc(url)}" class="button ghost small" target="_blank" rel="noopener noreferrer">Abrir na fonte</a>`:''}${certificate?`<a href="${esc(certificate)}" class="button ghost small" target="_blank" rel="noopener noreferrer">Abrir certidão no CNJ</a>`:''}</div></div></details></article>`;
-  }).join('');
-  const pagination=slice.pages>1?`<nav class="case-history-pagination" aria-label="Páginas do histórico local"><span>Mostrando ${slice.start+1}–${slice.end} de ${slice.count} · Página ${slice.page} de ${slice.pages}</span><div><button type="button" class="button ghost small" data-case-page="${slice.page-1}" ${slice.page===1?'disabled':''}>Anterior</button><button type="button" class="button ghost small" data-case-page="${slice.page+1}" ${slice.page===slice.pages?'disabled':''}>Próxima</button></div></nav>`:'';
-  return `<div class="case-history-list">${entries}</div>${pagination}`;
-}
-function refreshLocalHistory(){
-  const section=$('#local-case-history');
-  if(!section||!activeDetailCaseId)return;
-  const events=state.events.filter(e=>e.caseId===activeDetailCaseId).sort((a,b)=>b.date.localeCompare(a.date));
-  section.innerHTML=`<h3>Histórico · ${events.length} registro(s)</h3>${localHistoryHTML(events)}`;
-}
+
 function detail(id){const c=state.cases.find(x=>x.id===id);if(!c)return;
   if(activeDetailCaseId!==id){activeDetailCaseId=id;localHistoryPage=1;}
   const events=state.events.filter(e=>e.caseId===id).sort((a,b)=>b.date.localeCompare(a.date));
@@ -419,7 +399,9 @@ Object.defineProperties(viewApp,{
   publicationLoading:{get:()=>publicationLoading,set:value=>{publicationLoading=value;}},
   publicationLoaded:{get:()=>publicationLoaded,set:value=>{publicationLoaded=value;}},
   publicationError:{get:()=>publicationError,set:value=>{publicationError=value;}},
-  publicationFetched:{get:()=>publicationFetched,set:value=>{publicationFetched=value;}}
+  publicationFetched:{get:()=>publicationFetched,set:value=>{publicationFetched=value;}},
+  activeDetailCaseId:{get:()=>activeDetailCaseId,set:value=>{activeDetailCaseId=value;}},
+  localHistoryPage:{get:()=>localHistoryPage,set:value=>{localHistoryPage=value;}}
 });
 const boardViews=createBoardViews(viewApp);
 const sourceView=createSourceView(viewApp);
@@ -431,11 +413,22 @@ Object.assign(viewApp,{
   edit:editorView.edit,
   casesPanel,clients,tasks,agenda,finance,publications,jobsPanel,empty,panel,metric,metrics,toolbar,
   filteredCases,lastResult,caseName,clientName,date,timestamp,button,tag,icon,esc,dateKey,
-  safeDateLabel,statusName,pendingManualReviews,pendingSourceIssues,pendingOabIssue,
+  safeDateLabel,statusName,pendingManualReviews,pendingSourceIssues,pendingOabIssue,jurisdictionLabel,
   SCHEDULE_GROUPS,SCHEDULE_SORTS,routes,scheduledCases,scheduleRow,schedulePanel,djenLookupHTML,
   field,area,select,dialog,rememberForm,renderCnjChangeWarning,initDatajudForm,updateCnjInference,
   updateSettingsDirty,VERSION,CHANGELOG,STAGES,WORK_STATUSES,COURTS,COURT_LEVELS,autoScheduleInfo
 });
+const caseDetailView=createCaseDetailView(viewApp);
+Object.assign(viewApp,{
+  documentsSection:caseDetailView.documentsSection,
+  relatedProceedings:caseDetailView.relatedProceedings,
+  localHistoryHTML:caseDetailView.localHistoryHTML,
+  refreshLocalHistory:caseDetailView.refreshLocalHistory
+});
+const documentsSection=id=>caseDetailView.documentsSection(id);
+const relatedProceedings=item=>caseDetailView.relatedProceedings(item);
+const localHistoryHTML=events=>caseDetailView.localHistoryHTML(events);
+const refreshLocalHistory=()=>caseDetailView.refreshLocalHistory();
 async function action(name,id,caseId=''){
   const handler=actionHandlers[name];
   if(handler)return handler({name,id,caseId});

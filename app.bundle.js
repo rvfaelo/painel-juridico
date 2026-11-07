@@ -499,6 +499,485 @@
     return { updateTimeControls: updateTimeControls2, handleClick, handleChange };
   }
 
+  // publication-details.js
+  function rawDjenDetails(item = {}) {
+    const d = {}, text = (x) => typeof x === "string" || typeof x === "number" ? String(x).trim().slice(0, 240) : "";
+    for (const [field2, key] of Object.entries({ tribunal: "siglaTribunal", orgao: "nomeOrgao", classe: "nomeClasse", tipoComunicacao: "tipoComunicacao", tipoDocumento: "tipoDocumento", meio: "meio", numeroComunicacao: "numeroComunicacao" })) if (key in item) d[field2] = text(item[key]);
+    if ("ativo" in item) d.ativo = item.ativo !== false;
+    if (Array.isArray(item.destinatarios)) d.destinatarios = item.destinatarios.filter((x) => x && typeof x === "object").map((x) => ({ nome: text(x.nome), polo: text(x.polo) }));
+    if (Array.isArray(item.destinatarioadvogados)) d.advogados = item.destinatarioadvogados.filter((x) => x && typeof x === "object").map((x) => {
+      const a = x.advogado && typeof x.advogado === "object" ? x.advogado : x;
+      return { nome: text(a.nome), numeroOab: text(a.numero_oab), ufOab: text(a.uf_oab).slice(0, 2) };
+    });
+    if (d.destinatarios) d.destinatarios.sort((a, b) => (a.nome + "|" + a.polo).localeCompare(b.nome + "|" + b.polo));
+    if (d.advogados) d.advogados.sort((a, b) => (a.nome + "|" + a.numeroOab + "|" + a.ufOab).localeCompare(b.nome + "|" + b.numeroOab + "|" + b.ufOab));
+    return d;
+  }
+  function publicationDetails(event = {}) {
+    let value = event.publicationDetails ?? event.publication_details ?? {};
+    if (typeof value === "string") {
+      try {
+        value = JSON.parse(value);
+      } catch {
+        return {};
+      }
+    }
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  }
+  function publicationDetailsHTML(event = {}) {
+    const d = publicationDetails(event);
+    const text = (value) => typeof value === "string" || typeof value === "number" ? String(value) : "";
+    const fields2 = [
+      ["Tribunal", d.tribunal],
+      ["Órgão da publicação", d.orgao],
+      ["Classe na publicação", d.classe],
+      ["Comunicação", d.tipoComunicacao],
+      ["Documento publicado", d.tipoDocumento],
+      ["Número da comunicação", d.numeroComunicacao]
+    ];
+    const rows = fields2.filter(([, v]) => text(v)).map(([k, v]) => `<p class="compact"><strong>${k}:</strong> ${escapeHTML(text(v))}</p>`);
+    if (d.ativo === false) rows.push('<p class="warning-note">Publicação cancelada na fonte.</p>');
+    const recipients = Array.isArray(d.destinatarios) ? d.destinatarios : [];
+    const lawyers = Array.isArray(d.advogados) ? d.advogados : [];
+    const poles = { A: "Polo ativo", P: "Polo passivo", T: "Terceiro" };
+    if (recipients.length) rows.push("<div><strong>Destinatários da publicação</strong><ul>" + recipients.filter((x) => x && text(x.nome)).map((x) => `<li>${escapeHTML(text(x.nome))}${text(x.polo) ? " · " + escapeHTML(poles[x.polo] || text(x.polo)) : ""}</li>`).join("") + "</ul></div>");
+    if (lawyers.length) rows.push("<div><strong>Advogados destinatários</strong><ul>" + lawyers.filter((x) => x && (text(x.nome) || text(x.numeroOab))).map((x) => `<li>${escapeHTML(text(x.nome))}${text(x.numeroOab) ? " · OAB " + escapeHTML(text(x.ufOab)) + " " + escapeHTML(text(x.numeroOab)) : ""}</li>`).join("") + "</ul></div>");
+    if (!rows.length) return '<p class="muted compact">Dados dos destinatários ainda não disponíveis neste registro. Consulte o DJEN para atualizar.</p>';
+    return '<details class="publication-metadata"><summary>Dados e destinatários da publicação</summary><div class="private">' + rows.join("") + "</div></details>";
+  }
+
+  // publication-pdf.js
+  var ZONE = "America/Sao_Paulo";
+  var validDay = (value) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const d = /* @__PURE__ */ new Date(value + "T12:00:00Z");
+    return !Number.isNaN(d.valueOf()) && d.toISOString().slice(0, 10) === value;
+  };
+  function publicationDateBR(value) {
+    const input = String(value ?? "").trim(), day = input.slice(0, 10);
+    if (!validDay(day)) return "Sem data";
+    if (/^\d{4}-\d\d-\d\d$/.test(input) || !/(Z|[+-]\d\d:\d\d)$/i.test(input)) return day.slice(8) + "/" + day.slice(5, 7) + "/" + day.slice(0, 4);
+    const d = new Date(input);
+    return Number.isNaN(d.valueOf()) ? "Sem data" : new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: ZONE }).format(d);
+  }
+  function safePublicationUrl(value) {
+    if (typeof value !== "string" || value.length > 2048 || /[\x00-\x20]/.test(value)) return "";
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" && url.hostname && !url.username && !url.password ? url.href : "";
+    } catch {
+      return "";
+    }
+  }
+  function djenCertificateUrl(value) {
+    if (typeof value !== "string" || !/^[A-Za-z0-9_-]{16,128}$/.test(value)) return "";
+    return "https://comunicaapi.pje.jus.br/api/v1/comunicacao/" + value + "/certidao";
+  }
+  function officialCertificateFilename(item) {
+    return publicationPdfFilename(item).replace(/^Painel-HB-publicacao-/, "CNJ-certidao-publicacao-");
+  }
+  function downloadPdfBlob(blob, filename) {
+    const url = URL.createObjectURL(blob), link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5e3);
+  }
+  async function fetchOfficialCertificate(item, { integrated: integrated2 = false, fetcher = fetch } = {}) {
+    const hash = item?.certificateHash ?? item?.certificate_hash;
+    const official = djenCertificateUrl(hash);
+    if (!official) throw Error("A publicação não possui código de certidão. Atualize a consulta DJEN.");
+    const localId = String(item.id ?? "");
+    if (integrated2 && !/^djen:[A-Za-z0-9:_.-]{1,120}$/.test(localId)) throw Error("Identificador da publicação inválido.");
+    const target = integrated2 ? "/api/v1/publications/" + encodeURIComponent(localId) + "/certidao" : official;
+    let response;
+    try {
+      response = await fetcher(target, { cache: "no-store", signal: AbortSignal.timeout(18e3), ...integrated2 ? { credentials: "same-origin" } : {} });
+    } catch (error) {
+      throw Error(error?.name === "TimeoutError" ? "Tempo esgotado ao baixar certidão no CNJ." : "Não foi possível baixar a certidão. No HTML direto, o navegador pode bloquear a leitura por CORS; use “Abrir certidão no CNJ”.");
+    }
+    if (!response.ok) {
+      let message = "";
+      if (integrated2) try {
+        message = (await response.json()).error || "";
+      } catch {
+      }
+      throw Error(message || "Certidão indisponível no CNJ (HTTP " + response.status + ").");
+    }
+    const limit = 8e6;
+    if (Number(response.headers?.get("content-length") || 0) > limit) throw Error("A certidão excede o limite de 8 MB.");
+    let data;
+    if (response.body?.getReader) {
+      const reader = response.body.getReader(), chunks = [];
+      let size = 0;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          size += value.byteLength;
+          if (size > limit) throw Error("A certidão excede o limite de 8 MB.");
+          chunks.push(value);
+        }
+      } catch (error) {
+        await reader.cancel().catch(() => {
+        });
+        throw error;
+      }
+      data = new Uint8Array(size);
+      let offset = 0;
+      for (const chunk of chunks) {
+        data.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+    } else data = new Uint8Array(await response.arrayBuffer());
+    if (data.length > limit || data.length < 8 || new TextDecoder("ascii").decode(data.slice(0, 5)) !== "%PDF-") throw Error("A fonte não retornou um PDF válido; nenhum arquivo foi salvo.");
+    return new Blob([data], { type: "application/pdf" });
+  }
+  async function downloadOfficialCertificate(item, options = {}) {
+    const blob = await fetchOfficialCertificate(item, options);
+    downloadPdfBlob(blob, officialCertificateFilename(item));
+  }
+  function publicationPdfFilename(item) {
+    const date2 = String(item.date ?? item.occurred_at ?? "").slice(0, 10);
+    const cnj = String(item.cnj ?? "").replace(/\D/g, "").slice(0, 20) || "sem-cnj";
+    const suffix = String(item.id ?? "").replace(/[^a-zA-Z0-9_-]/g, "-").slice(-45) || "registro";
+    return `Painel-HB-publicacao-${cnj}-${validDay(date2) ? date2 : "sem-data"}-${suffix}.pdf`;
+  }
+  var remap = { "€": 128, "‚": 130, "ƒ": 131, "„": 132, "…": 133, "†": 134, "‡": 135, "ˆ": 136, "‰": 137, "Š": 138, "‹": 139, "Œ": 140, "Ž": 142, "‘": 145, "’": 146, "“": 147, "”": 148, "•": 149, "–": 150, "—": 151, "˜": 152, "™": 153, "š": 154, "›": 155, "œ": 156, "ž": 158, "Ÿ": 159 };
+  var cleanText = (value) => String(value ?? "").replace(/\r\n?/g, "\n").replace(/[\t\f\v]/g, " ");
+  function winAnsi(value) {
+    let out = "";
+    for (const c of cleanText(value)) {
+      const n = c.codePointAt(0), v = remap[c] ?? (n >= 32 && n <= 126 || n >= 160 && n <= 255 ? n : 63);
+      out += String.fromCharCode(v);
+    }
+    return out;
+  }
+  var literal = (value) => winAnsi(value).replace(/[\\()]/g, "\\$&");
+  function wrap(value, max = 82) {
+    const lines = [];
+    for (const paragraph of cleanText(value).split("\n")) {
+      if (!paragraph.trim()) {
+        lines.push("");
+        continue;
+      }
+      let line = "";
+      for (const word of paragraph.trim().split(/\s+/)) {
+        if (line && line.length + 1 + word.length > max) {
+          lines.push(line);
+          line = "";
+        }
+        if (word.length > max) {
+          if (line) {
+            lines.push(line);
+            line = "";
+          }
+          for (let i = 0; i < word.length - max; i += max) lines.push(word.slice(i, i + max));
+          line = word.slice(Math.max(0, word.length - word.length % max));
+          if (!line) line = word.slice(-max);
+        } else line += (line ? " " : "") + word;
+      }
+      lines.push(line);
+    }
+    return lines;
+  }
+  function bytes(text) {
+    const output = new Uint8Array(text.length);
+    for (let i = 0; i < text.length; i++) output[i] = text.charCodeAt(i) & 255;
+    return output;
+  }
+  function publicationPdfBlob(item) {
+    if (!item || typeof item !== "object") throw Error("Publicação inválida para exportação.");
+    const fields2 = [`Processo: ${item.cnj || "Não informado"}`, `Data: ${publicationDateBR(item.date ?? item.occurred_at)}`, `Fonte: ${item.tribunal || item.source || "Não informada"}`];
+    const url = safePublicationUrl(item.url);
+    if (url) fields2.push("Link da fonte: " + url);
+    const lines = [...fields2.flatMap((x) => wrap(x)), "", ...wrap(item.text || "Conteúdo não informado."), "", ...wrap("Cópia local gerada pelo Painel H.B. Confira o texto e as informações no portal oficial; este PDF não substitui a publicação original.")];
+    const perPage = 42, pages = [];
+    for (let i = 0; i < lines.length; i += perPage) pages.push(lines.slice(i, i + perPage));
+    if (!pages.length) pages.push([]);
+    const objects = [null], add = (v) => (objects.push(v), objects.length - 1);
+    const fontRegular = add("<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>");
+    const fontTitle = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>");
+    const pagesId = add("");
+    const pageIds = [];
+    pages.forEach((lines2, index) => {
+      let stream = "0.16 0.32 0.23 rg\nBT /F2 17 Tf 45 788 Td (" + literal("Publicação judicial · Painel H.B") + ") Tj ET\n";
+      stream += "0.75 0.82 0.72 RG 45 774 m 550 774 l S\n";
+      lines2.forEach((line, i) => {
+        stream += "0.16 0.20 0.17 rg\nBT /F1 10 Tf 45 " + (743 - i * 15) + " Td (" + literal(line) + ") Tj ET\n";
+      });
+      stream += "0.48 0.52 0.47 rg\nBT /F1 9 Tf 45 39 Td (" + literal("Painel H.B · cópia não oficial · página " + (index + 1) + " de " + pages.length) + ") Tj ET\n";
+      const contentId = add("<< /Length " + bytes(stream).length + " >>\nstream\n" + stream + "endstream");
+      pageIds.push(add("<< /Type /Page /Parent " + pagesId + " 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 " + fontRegular + " 0 R /F2 " + fontTitle + " 0 R >> >> /Contents " + contentId + " 0 R >>"));
+    });
+    objects[pagesId] = "<< /Type /Pages /Kids [" + pageIds.map((n) => n + " 0 R").join(" ") + "] /Count " + pageIds.length + " >>";
+    const catalogId = add("<< /Type /Catalog /Pages " + pagesId + " 0 R >>");
+    let output = "%PDF-1.4\n%âãÏÓ\n";
+    const offsets = [0];
+    for (let i = 1; i < objects.length; i++) {
+      offsets[i] = bytes(output).length;
+      output += i + " 0 obj\n" + objects[i] + "\nendobj\n";
+    }
+    const xref = bytes(output).length;
+    output += "xref\n0 " + objects.length + "\n0000000000 65535 f \n";
+    for (let i = 1; i < objects.length; i++) output += String(offsets[i]).padStart(10, "0") + " 00000 n \n";
+    output += "trailer\n<< /Size " + objects.length + " /Root " + catalogId + " 0 R >>\nstartxref\n" + xref + "\n%%EOF\n";
+    return new Blob([bytes(output)], { type: "application/pdf" });
+  }
+  function downloadPublicationPdf(item) {
+    downloadPdfBlob(publicationPdfBlob(item), publicationPdfFilename(item));
+  }
+
+  // integrated-case-view.js
+  var ZONE2 = "America/Sao_Paulo";
+  var dateWithZone = new Intl.DateTimeFormat("pt-BR", {
+    timeZone: ZONE2,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23"
+  });
+  function caseMoment(value) {
+    if (typeof value !== "string" || !value.trim()) return null;
+    const raw = value.trim();
+    const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+    const withoutZone = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?$/.exec(raw);
+    if (dateOnly || withoutZone) {
+      const parts = dateOnly || withoutZone;
+      const year = Number(parts[1]), month = Number(parts[2]), day = Number(parts[3]);
+      const valid = new Date(Date.UTC(year, month - 1, day));
+      if (year < 1e3 || valid.getUTCFullYear() !== year || valid.getUTCMonth() !== month - 1 || valid.getUTCDate() !== day) return null;
+      if (dateOnly) return { text: `${parts[3]}/${parts[2]}/${parts[1]}`, datetime: raw, kind: "date" };
+      const hour = Number(parts[4]), minute = Number(parts[5]), second = Number(parts[6] || 0);
+      if (hour > 23 || minute > 59 || second > 59) return null;
+      return {
+        text: `${parts[3]}/${parts[2]}/${parts[1]} às ${parts[4]}:${parts[5]}`,
+        datetime: raw,
+        kind: "no-zone"
+      };
+    }
+    if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d(?:\.\d+)?)?(?:Z|[+-]\d\d:\d\d)$/i.test(raw)) return null;
+    const calendar = raw.slice(0, 10).split("-").map(Number);
+    const check = new Date(Date.UTC(calendar[0], calendar[1] - 1, calendar[2]));
+    if (calendar[0] < 1e3 || check.getUTCFullYear() !== calendar[0] || check.getUTCMonth() !== calendar[1] - 1 || check.getUTCDate() !== calendar[2]) return null;
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.valueOf())) return null;
+    const fields2 = Object.fromEntries(dateWithZone.formatToParts(parsed).map(({ type, value: value2 }) => [type, value2]));
+    return {
+      text: `${fields2.day}/${fields2.month}/${fields2.year} às ${fields2.hour}:${fields2.minute}`,
+      datetime: raw,
+      kind: "converted"
+    };
+  }
+  function label(value) {
+    if (value && typeof value === "object" && !Array.isArray(value)) value = value.nome || value.descricao || value.name || "";
+    if (typeof value !== "string") return "";
+    const text = value.replace(/\s+/gu, " ").trim();
+    return /^c[oó]digo\s*\d+$/iu.test(text) || /^\d+$/u.test(text) || /^\[object\s+object\]$/iu.test(text) || /^[{[]/u.test(text) ? "" : text.slice(0, 240);
+  }
+  function courtDegree(value) {
+    const normalized2 = label(value).toUpperCase().replace(/\s+/gu, " ");
+    if (["G1", "1", "1º GRAU", "1° GRAU", "1ª INSTÂNCIA", "PRIMEIRO GRAU"].includes(normalized2)) return "1º grau";
+    if (["G2", "2", "2º GRAU", "2° GRAU", "2ª INSTÂNCIA", "SEGUNDO GRAU"].includes(normalized2)) return "2º grau";
+    if (["SUP", "SUPERIOR", "TRIBUNAL SUPERIOR"].includes(normalized2)) return "Tribunal superior";
+    return "Grau não identificado";
+  }
+  var sourceLabel = (value) => ({
+    datajud: "DataJud",
+    djen: "DJEN",
+    esaj_pg: "TJSP e-SAJ · 1º grau",
+    esaj_sg: "TJSP e-SAJ · 2º grau"
+  })[value] || label(value) || "Fonte não identificada";
+  function tramitationGroups(records) {
+    const order = ["1º grau", "2º grau", "Tribunal superior", "Grau não identificado"];
+    const groups = /* @__PURE__ */ new Map();
+    for (const item of records) {
+      const degree = courtDegree(item.grau);
+      if (!groups.has(degree)) groups.set(degree, []);
+      groups.get(degree).push(item);
+    }
+    return order.filter((x) => groups.has(x)).map((name) => ({ name, records: groups.get(name) }));
+  }
+  function probableCrossDegreeDuplicates(events, tramitations) {
+    const tracks = new Map(tramitations.map((x) => [String(x.id || ""), { source: x.source, degree: courtDegree(x.grau) }]));
+    const groups = /* @__PURE__ */ new Map(), possible = /* @__PURE__ */ new Set();
+    for (const event of events) {
+      const track = tracks.get(String(event.tramitation_id || ""));
+      const description = typeof event.text === "string" ? event.text.replace(/\s+/gu, " ").trim().toLocaleLowerCase("pt-BR") : "";
+      if (!track || track.degree === "Grau não identificado" || track.source !== event.source || !event.occurred_at || !description) continue;
+      const key = JSON.stringify([event.source, String(event.occurred_at).trim(), description]);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push({ event, degree: track.degree });
+    }
+    for (const items of groups.values()) {
+      if (new Set(items.map((x) => x.degree)).size > 1)
+        for (const item of items) possible.add(String(item.event.source) + "\0" + String(item.event.id));
+    }
+    return possible;
+  }
+  var plural = (count, one, many) => `${count.toLocaleString("pt-BR")} ${count === 1 ? one : many}`;
+  function latestMoment(values, oldest = false) {
+    const valid = values.filter((x) => caseMoment(x));
+    if (!valid.length) return "";
+    const key = (value) => {
+      const moment2 = caseMoment(value);
+      if (moment2.kind === "converted") return Date.parse(value);
+      return Date.parse(value.replace(" ", "T") + (moment2.kind === "date" ? "T00:00:00" : "") + "Z");
+    };
+    valid.sort((a, b) => key(a) - key(b));
+    return oldest ? valid[0] : valid[valid.length - 1];
+  }
+  function readableTime(value) {
+    const moment2 = caseMoment(value);
+    if (!moment2) return "";
+    const title = moment2.kind === "converted" ? "Exibido no horário de Brasília (America/Sao_Paulo)" : moment2.kind === "no-zone" ? "A fonte não forneceu fuso; hora exibida sem conversão" : "Data sem horário informado pela fonte";
+    return `<time datetime="${escapeHTML(moment2.datetime)}" title="${escapeHTML(title)}">${escapeHTML(moment2.text)}</time>`;
+  }
+  function tramitationHTML(item) {
+    const tribunal = label(item.tribunal), system = label(item.sistema), organ = label(item.orgao);
+    const klass = label(item.classe);
+    const summary = [
+      tribunal && `<span><strong>Tribunal:</strong> ${escapeHTML(tribunal)}</span>`,
+      system && `<span><strong>Sistema:</strong> ${escapeHTML(system)}</span>`,
+      organ && `<span><strong>Órgão julgador:</strong> ${escapeHTML(organ)}</span>`,
+      klass && `<span><strong>Classe:</strong> ${escapeHTML(klass)}</span>`,
+      Array.isArray(item.assuntos) && item.assuntos.map(label).filter(Boolean).length ? `<span><strong>Assuntos:</strong> ${escapeHTML(item.assuntos.map(label).filter(Boolean).join(" · "))}</span>` : "",
+      caseMoment(item.dataAjuizamento) ? `<span><strong>Ajuizamento:</strong> ${readableTime(item.dataAjuizamento)}</span>` : ""
+    ].filter(Boolean);
+    return `<article class="integrated-tramitation"><div class="integrated-tramitation-head"><span class="integrated-source">${escapeHTML(sourceLabel(item.source))}</span></div>` + (summary.length ? `<div class="integrated-track-meta">${summary.join("")}</div>` : '<p class="muted compact">Esta tramitação não trouxe dados adicionais de identificação.</p>') + "</article>";
+  }
+  function eventHTML(item, caseId, trackById, duplicates) {
+    const when = readableTime(item.occurred_at);
+    const track = trackById.get(String(item.tramitation_id || ""));
+    const degree = track ? courtDegree(track.grau) : "";
+    const isPending = !!item.is_new && !item.seen;
+    const duplicate = duplicates.has(String(item.source) + "\0" + String(item.id));
+    const text = typeof item.text === "string" && item.text.trim() ? item.text.trim() : "Descrição não informada pela fonte.";
+    const snippet = text.replace(/\s+/gu, " ").slice(0, 145);
+    return `<article class="integrated-event${isPending ? " integrated-event-pending" : ""}" data-event-source="${escapeHTML(item.source)}" data-event-id="${escapeHTML(item.id)}"><details class="integrated-event-disclosure"><summary class="integrated-event-summary"><span class="integrated-event-date">${when || "Data do evento não informada"}</span><span class="integrated-event-tags"><span class="integrated-source">${escapeHTML(sourceLabel(item.source))}</span>` + (track && degree !== "Grau não identificado" ? `<span class="integrated-degree">${escapeHTML(degree)}</span>` : "") + (item.kind === "publication" ? '<span class="integrated-degree">Publicação</span>' : "") + "</span>" + (isPending ? '<span class="integrated-pending-tag">Por conferir</span>' : "") + `<span class="integrated-event-snippet private">${escapeHTML(snippet)}</span><span class="integrated-event-caret" aria-hidden="true">⌄</span></summary><div class="integrated-event-extra"><p class="integrated-event-text private">${escapeHTML(text)}</p>` + (item.source === "djen" ? publicationDetailsHTML(item) + '<div class="publication-actions">' + (safePublicationUrl(item.url) ? `<a class="button ghost small" href="${escapeHTML(safePublicationUrl(item.url))}" target="_blank" rel="noopener noreferrer">Abrir publicação na fonte</a>` : "") + (djenCertificateUrl(item.certificate_hash) ? `<a class="button secondary small" href="${escapeHTML(djenCertificateUrl(item.certificate_hash))}" target="_blank" rel="noopener noreferrer">Abrir certidão oficial</a>` : "") + "</div>" : "") + (duplicate ? '<p class="integrated-possible-duplicate" title="A mesma data e descrição aparecem em tramitações de graus diferentes; são registros distintos e foram preservados.">Possível repetição em outro grau · confira ambos os registros</p>' : "") + (isPending ? `<button type="button" class="button secondary small" data-integrated="seen" data-id="${escapeHTML(item.id)}" data-case-id="${escapeHTML(caseId)}" data-source="${escapeHTML(item.source)}">Marcar como conferido (controle interno)</button>` : "") + "</div></details></article>";
+  }
+  var CASE_HISTORY_PAGE_SIZE = 12;
+  function historyPage(records, requestedPage = 1, pageSize = CASE_HISTORY_PAGE_SIZE) {
+    const count = records.length;
+    const pages = Math.max(1, Math.ceil(count / pageSize));
+    const page = Math.min(pages, Math.max(1, Math.trunc(Number(requestedPage) || 1)));
+    const start2 = (page - 1) * pageSize;
+    return { page, pages, start: start2, end: Math.min(start2 + pageSize, count), count, items: records.slice(start2, start2 + pageSize) };
+  }
+  function technicalHTML(info, items, track) {
+    const first = latestMoment(items.map((x) => x.first_seen), true);
+    const last = latestMoment(items.map((x) => x.last_seen));
+    const sourceUpdated = latestMoment([...items.map((x) => x.source_updated_at), ...track.map((x) => x.ultimaAtualizacaoFonte)]);
+    const values = [
+      ["Primeira identificação no histórico exibido", first, "Primeira vez que o serviço registrou um dos eventos exibidos; não é a data do movimento."],
+      ["Última identificação no histórico exibido", last, "Última vez que um evento exibido foi novamente identificado na fonte."],
+      ["Última consulta tentada", info.lastAttempt?.attempted_at, "Quando o serviço local tentou consultar a fonte, mesmo que tenha falhado."],
+      ["Última consulta com resposta", info.lastSuccess?.attempted_at, "Quando a fonte retornou um resultado, inclusive parcial ou sem registros."],
+      ["Atualização informada pela fonte", sourceUpdated, "Atualização mais recente entre as fontes consultadas; não representa a data do movimento."]
+    ];
+    const perSource = /* @__PURE__ */ new Map();
+    for (const item of [
+      ...items.map((x) => ({ source: x.source, when: x.source_updated_at })),
+      ...track.map((x) => ({ source: x.source, when: x.ultimaAtualizacaoFonte }))
+    ]) {
+      if (!caseMoment(item.when)) continue;
+      const values2 = perSource.get(item.source) || [];
+      values2.push(item.when);
+      perSource.set(item.source, values2);
+    }
+    if (perSource.size > 1) {
+      for (const [key, timestamps] of perSource)
+        values.push([
+          "Atualização · " + sourceLabel(key),
+          latestMoment(timestamps),
+          "Último carimbo de atualização disponível para esta fonte."
+        ]);
+    }
+    const lines = values.filter(([, value]) => caseMoment(value));
+    const corrections = items.reduce((n, x) => n + (Number(x.correction_count) || 0), 0);
+    return `<details class="integrated-technical"><summary>Informações técnicas das consultas <span class="integrated-expand">Mostrar detalhes</span></summary>` + (lines.length ? `<dl class="integrated-technical-grid">${lines.map(([name, value, description]) => `<div><dt>${escapeHTML(name)}</dt><dd>${readableTime(value)}</dd><p>${escapeHTML(description)}</p></div>`).join("")}</dl>` : '<p class="muted compact">Ainda não há datas técnicas disponíveis nesta consulta.</p>') + (corrections ? `<p class="muted compact">Correções de conteúdo registradas: ${plural(corrections, "correção", "correções")}.</p>` : "") + (info.previousNumberEvents ? '<p class="muted compact">Há registros preservados para CNJ anterior, não exibidos neste processo.</p>' : "") + '<p class="muted compact">Identificação e consulta são registros internos do Painel H.B; não representam a ocorrência ou publicação judicial.</p></details>';
+  }
+  function sourceStatusHTML(info, caseId) {
+    const jobs = Array.isArray(info.sourceJobs) ? info.sourceJobs : [];
+    const states = {
+      queued: "Na fila",
+      running: "Consultando",
+      success: "Consulta concluída",
+      partial: "Resultado parcial",
+      not_found: "Sem registros na consulta",
+      unavailable: "Fonte indisponível",
+      auth_required: "Autenticação necessária",
+      access_denied: "Acesso negado",
+      unsupported: "Não disponível",
+      incompatible: "Resposta incompatível",
+      cancelled: "Consulta cancelada"
+    };
+    return jobs.map((job) => `<article class="record" ${job.status === "running" ? 'data-loading="true" data-loading-fixed aria-busy="true"' : ""}><strong>${escapeHTML(sourceLabel(job.source))} · ${escapeHTML(states[job.status] || "Situação não identificada")}</strong><p class="compact">${escapeHTML(job.source === "djen" && job.status === "not_found" ? "Nenhuma publicação encontrada no período consultado. Isso não significa que o processo não existe." : job.message || "Consulta aguardando resultado.")}</p>` + (job.updated_at ? `<small>${readableTime(job.updated_at)}</small>` : "") + "</article>").join("");
+  }
+  function integratedCaseHTML(info, caseId, pageState = {}) {
+    const items = Array.isArray(info?.events) ? info.events : [];
+    const track = Array.isArray(info?.tramitations) ? info.tramitations.filter((x) => x.source === "datajud") : [];
+    const pending = items.filter((x) => !!x.is_new && !x.seen);
+    const movements = items.filter((x) => x.kind !== "publication").length;
+    const publications2 = items.filter((x) => x.kind === "publication").length;
+    const historyDescription = items.length >= 2e3 ? "no histórico exibido" : "no histórico";
+    const count = items.length ? movements && publications2 ? `${plural(movements, "movimento", "movimentos")} · ${plural(publications2, "publicação", "publicações")} ${historyDescription}` : movements ? `${plural(movements, "movimento", "movimentos")} ${historyDescription}` : `${plural(publications2, "publicação", "publicações")} ${historyDescription}` : "Nenhum evento no histórico";
+    const trackById = new Map(track.map((x) => [String(x.id || ""), x]));
+    const duplicates = probableCrossDegreeDuplicates(items, track);
+    const groupHTML = tramitationGroups(track).map(({ name, records }) => `<section class="integrated-degree-group" aria-label="Tramitações do ${escapeHTML(name)}"><header class="integrated-degree-heading"><h5>${escapeHTML(name)}</h5><span>${plural(records.length, "registro", "registros")}</span></header><div class="integrated-tramitation-list">${records.map(tramitationHTML).join("")}</div></section>`).join("");
+    const eventList = (events, source, kind) => {
+      const key = `${source}-${kind}`;
+      const slice = historyPage(events, pageState[key]);
+      const controls = slice.pages > 1 ? `<nav class="case-history-pagination" aria-label="Páginas de ${escapeHTML(sourceLabel(source))} · ${kind === "news" ? "novidades" : "histórico"}"><span>Mostrando ${slice.start + 1}–${slice.end} de ${slice.count} · Página ${slice.page} de ${slice.pages}</span><div><button type="button" class="button ghost small" data-integrated="events-page" data-key="${escapeHTML(key)}" data-page="${slice.page - 1}" ${slice.page === 1 ? "disabled" : ""} aria-label="Página anterior">Anterior</button><button type="button" class="button ghost small" data-integrated="events-page" data-key="${escapeHTML(key)}" data-page="${slice.page + 1}" ${slice.page === slice.pages ? "disabled" : ""} aria-label="Próxima página">Próxima</button></div></nav>` : "";
+      return `<div class="integrated-event-list">${slice.items.map((item) => eventHTML(item, caseId, trackById, duplicates)).join("")}</div>${controls}`;
+    };
+    const block = (source, title, description) => {
+      const selected2 = items.filter((x) => x.source === source);
+      const news = selected2.filter((x) => !!x.is_new && !x.seen), history = selected2.filter((x) => !x.is_new || !!x.seen);
+      const disabled = info.enabledSources?.[source] === false;
+      const action2 = source === "datajud" ? "Buscar andamentos no DataJud" : "Buscar publicações no DJEN";
+      return `<section class="integrated-block" aria-label="${title}"><h4>${title}</h4><p class="muted compact">${description}</p><button type="button" class="button secondary small" data-integrated="update-${source}" data-id="${escapeHTML(caseId)}" ${disabled ? "disabled" : ""}>${action2}</button>` + (disabled ? `<p class="warning-note">Habilite ${sourceLabel(source)} em Fontes e ajustes para consultar.</p>` : "") + (source === "djen" ? `<p class="muted compact">Período da busca DJEN: últimos ${Number(info.djenDays) || 30} dias.</p>` : "") + sourceStatusHTML({ ...info, sourceJobs: (info.sourceJobs || []).filter((x) => x.source === source) }, caseId) + `<div aria-label="Novidades por conferir"><h5>Por conferir · ${news.length}</h5>` + (news.length ? eventList(news, source, "news") : '<p class="integrated-empty">Nenhuma novidade pendente de conferência.</p>') + `</div><div aria-label="Histórico de eventos"><h5>Histórico · ${history.length}</h5>` + (history.length ? eventList(history, source, "history") : '<p class="integrated-empty">Não há outros registros no histórico desta consulta.</p>') + "</div>" + (source === "datajud" ? `<section aria-label="Tramitações agrupadas por grau"><h5>Metadados e tramitações por grau</h5>${track.length ? groupHTML : '<p class="integrated-empty">Nenhuma tramitação estruturada disponível nesta fonte.</p>'}</section>` : "") + "</section>";
+    };
+    const other = items.filter((x) => !["datajud", "djen"].includes(x.source));
+    return `<div class="integrated-overview"><h3>Acompanhamento integrado</h3><p class="integrated-count" aria-live="polite"><strong>${escapeHTML(count)}</strong> · <strong>${plural(pending.length, "por conferir", "por conferir")}</strong></p><p class="muted compact">Novidade significa identificada após a linha de base ou consulta anterior — não necessariamente um movimento ocorrido recentemente.</p><p class="integrated-timezone">Datas e horas com fuso são exibidas no horário de Brasília. Sem fuso informado, o horário é mantido.</p>` + (items.length >= 2e3 ? '<p class="muted compact">Exibindo os 2.000 registros mais recentes retornados pelo serviço.</p>' : "") + "</div>" + block("datajud", "Andamentos · DataJud", "Movimentações enviadas pelo tribunal e metadados estruturados do processo. A consulta não fornece o teor das decisões.") + block("djen", "Publicações · DJEN", "Textos publicados, destinatários, advogados e certidões. Publicações não representam todos os andamentos dos autos.") + (other.length ? '<section class="integrated-block"><h4>Outras fontes</h4>' + eventList(other, "other", "history") + "</section>" : "") + technicalHTML(info, items, track) + '<p class="muted compact">Documentos dos autos: use os links oficiais quando disponíveis. Uma certidão DJEN não equivale ao PDF original da decisão.</p>';
+  }
+
+  // view-case-detail.js
+  function createCaseDetailView(app) {
+    function documentsSection2(id) {
+      const items = app.state.documents.filter((d) => d.caseId === id);
+      return `<div class="detail-section"><div class="panel-heading"><h3>Anexos · ${items.length}</h3>${app.button("attach", "Anexar documento", "secondary small", id)}</div><p class="muted compact">PDF, PNG, JPEG, WebP ou TXT UTF-8. Até 5 MB por arquivo e 25 MB no total. Armazenamento local, incluído no backup.</p>${items.map((d) => `<article class="record"><div class="record-head"><div><strong class="private">${app.esc(d.name)}</strong><small>${(d.size / 1024).toFixed(1)} KB · ${app.date(d.createdAt)}</small></div><div class="line-actions">${app.button("download-document", "Baixar", "secondary small", d.id)}${app.button("remove-document", "Remover", "ghost small", d.id)}</div></div></article>`).join("") || '<p class="muted">Nenhum documento anexado.</p>'}</div>`;
+    }
+    function relatedProceedings2(c) {
+      const parent = app.state.cases.find((x) => x.id === c.parentCaseId), children = app.state.cases.filter((x) => x.parentCaseId === c.id);
+      return `<div class="detail-section"><h3>Tramitação e vínculos</h3><p class="private">${app.esc(app.jurisdictionLabel(c) || "Tribunal e grau não informados")}</p>${c.docketNumber ? `<p class="private">Registro adicional: ${app.esc(c.docketNumber)}</p>` : ""}${c.originReference ? `<p class="private">Referência de origem: ${app.esc(c.originReference)}</p>` : ""}${parent ? `<p class="private">Origem: ${app.button("detail", "Abrir " + app.esc(parent.title), "secondary small", parent.id)}</p>` : ""}${children.map((x) => `<p class="private">Relacionado: ${app.button("detail", "Abrir " + app.esc(x.title), "secondary small", x.id)}</p>`).join("")}<p class="muted compact">Vínculos manuais. Eventos e documentos permanecem associados ao processo original.</p></div>`;
+    }
+    function localHistoryHTML2(events) {
+      if (!events.length) return '<p class="muted">As informações encontradas nas fontes aparecerão aqui.</p>';
+      const slice = historyPage(events, app.localHistoryPage);
+      app.localHistoryPage = slice.page;
+      const entries = slice.items.map((e) => {
+        const label2 = e.kind === "publication" ? "Publicação" : "Movimentação";
+        const url = safePublicationUrl(e.url), certificate = djenCertificateUrl(e.certificateHash);
+        const summary = String(e.text || "Descrição não informada").replace(/\s+/gu, " ").slice(0, 145);
+        return `<article class="case-history-event"><details><summary class="case-history-summary"><time class="case-history-date">${app.esc(publicationDateBR(e.date))}</time><span class="integrated-source">${app.esc(e.tribunal || e.source || "Fonte não informada")}</span><span class="integrated-degree">${label2}</span>${e.publicationStatus === "Cancelada" ? app.tag("Publicação cancelada", "action") : ""}${!e.seen ? '<span class="integrated-pending-tag">Por conferir</span>' : ""}<span class="case-history-snippet private">${app.esc(summary)}</span><span class="integrated-event-caret" aria-hidden="true">⌄</span></summary><div class="case-history-extra private"><p>${app.esc(e.text || "Descrição não informada")}</p>${e.source === "djen" ? publicationDetailsHTML(e) : ""}<p class="muted compact">Identificado em ${app.timestamp(e.discoveredAt)}${e.sourceUpdatedAt ? " · Atualização da fonte: " + app.esc(e.sourceUpdatedAt) : ""}</p><div class="case-history-actions">${app.button("seen", e.seen ? "Desmarcar conferência" : "Marcar como conferido", "ghost small", e.id)}${e.kind === "publication" ? app.button("publication-pdf", "Baixar cópia (PDF)", "secondary small", e.id) + (certificate ? app.button("publication-official-pdf", "Baixar certidão oficial", "secondary small", e.id) : "") : ""}${url ? `<a href="${app.esc(url)}" class="button ghost small" target="_blank" rel="noopener noreferrer">Abrir na fonte</a>` : ""}${certificate ? `<a href="${app.esc(certificate)}" class="button ghost small" target="_blank" rel="noopener noreferrer">Abrir certidão no CNJ</a>` : ""}</div></div></details></article>`;
+      }).join("");
+      const pagination = slice.pages > 1 ? `<nav class="case-history-pagination" aria-label="Páginas do histórico local"><span>Mostrando ${slice.start + 1}–${slice.end} de ${slice.count} · Página ${slice.page} de ${slice.pages}</span><div><button type="button" class="button ghost small" data-case-page="${slice.page - 1}" ${slice.page === 1 ? "disabled" : ""}>Anterior</button><button type="button" class="button ghost small" data-case-page="${slice.page + 1}" ${slice.page === slice.pages ? "disabled" : ""}>Próxima</button></div></nav>` : "";
+      return `<div class="case-history-list">${entries}</div>${pagination}`;
+    }
+    function refreshLocalHistory2() {
+      const section = app.$("#local-case-history");
+      if (!section || !app.activeDetailCaseId) return;
+      const events = app.state.events.filter((e) => e.caseId === app.activeDetailCaseId).sort((a, b) => b.date.localeCompare(a.date));
+      section.innerHTML = `<h3>Histórico · ${events.length} registro(s)</h3>${localHistoryHTML2(events)}`;
+    }
+    return { documentsSection: documentsSection2, relatedProceedings: relatedProceedings2, localHistoryHTML: localHistoryHTML2, refreshLocalHistory: refreshLocalHistory2 };
+  }
+
   // view-content.js
   function contentHTML(app, route2) {
     return {
@@ -677,7 +1156,7 @@
   function emptyState() {
     return { schemaVersion: SCHEMA, revision: 0, clients: [], cases: [], tasks: [], appointments: [], fees: [], events: [], jobs: [], payments: [], documents: [], coverageSamples: [], settings: { datajudKey: PUBLIC_DATAJUD_KEY, datajud: false, djen: true, djenDays: 30, oab: "", ufOab: "", autoUpdateEnabled: true, autoUpdateTimes: "08:00,18:00", autoUpdateLast: "" } };
   }
-  function validDay(value) {
+  function validDay2(value) {
     if (typeof value !== "string" || !/^\d{4}-\d\d-\d\d$/.test(value)) return false;
     const d = /* @__PURE__ */ new Date(value + "T12:00:00Z");
     return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
@@ -686,7 +1165,7 @@
     if (typeof value !== "string" || !/^\d{4}-\d\d-\d\dT\d\d:\d\d$/.test(value)) return false;
     const [day, time2] = value.split("T");
     const [hour, minute] = time2.split(":").map(Number);
-    return validDay(day) && hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
+    return validDay2(day) && hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
   }
   function caseForWorkflow(state2, caseId) {
     const c = state2.cases.find((row) => row.id === caseId);
@@ -699,7 +1178,7 @@
     if (typeof input.nextStep !== "string" || input.nextStep.length > 500) throw Error("Descreva o próximo passo em até 500 caracteres.");
     if (!Object.hasOwn(WORK_OWNERS, input.workOwner)) throw Error("Escolha um responsável válido.");
     if (!Object.hasOwn(WORK_STATUSES, input.workStatus)) throw Error("Escolha uma situação válida para o próximo passo.");
-    if (typeof input.review !== "string" || input.review && !validDay(input.review)) throw Error("Informe uma data válida para revisar.");
+    if (typeof input.review !== "string" || input.review && !validDay2(input.review)) throw Error("Informe uma data válida para revisar.");
     Object.assign(c, { nextStep: clean(input.nextStep, 500), workOwner: input.workOwner, workStatus: input.workStatus, review: input.review, updatedAt: now() });
     return c;
   }
@@ -762,7 +1241,7 @@
     if (!fee) throw Error("Honorário não encontrado.");
     const amount = cents(input.amount);
     if (amount <= 0 || amount > fee.amount - feeReceived(state2, fee.id)) throw Error("Recebimento deve ser positivo e não pode superar o saldo.");
-    if (!validDay(input.date)) throw Error("Informe a data válida do recebimento.");
+    if (!validDay2(input.date)) throw Error("Informe a data válida do recebimento.");
     const p2 = { id: uid(), feeId: fee.id, amount, kind: "receipt", date: input.date, notes: clean(input.notes), createdAt: now() };
     state2.payments.push(p2);
     fee.paid = feeReceived(state2, fee.id);
@@ -772,7 +1251,7 @@
     const original = state2.payments.find((p3) => p3.id === id && p3.kind === "receipt");
     if (!original) throw Error("Recebimento não encontrado.");
     if (state2.payments.some((p3) => p3.reverses === id)) throw Error("Este recebimento já foi estornado.");
-    if (!validDay(input.date) || input.date < original.date) throw Error("Data de estorno inválida ou anterior ao recebimento.");
+    if (!validDay2(input.date) || input.date < original.date) throw Error("Data de estorno inválida ou anterior ao recebimento.");
     if (!clean(input.notes)) throw Error("Informe o motivo do estorno.");
     const p2 = { id: uid(), feeId: original.feeId, amount: original.amount, kind: "reversal", reverses: id, date: input.date, notes: clean(input.notes), createdAt: now() };
     state2.payments.push(p2);
@@ -807,7 +1286,7 @@
     const source = String(input.source || ""), result = String(input.result || ""), referenceDate = String(input.referenceDate || ""), notes = clean(input.notes, 1500);
     if (!["djen", "datajud"].includes(source)) throw Error("Selecione a fonte a comparar.");
     if (!Object.hasOwn(COVERAGE_RESULTS, result)) throw Error("Selecione o resultado da comparação.");
-    if (!validDay(referenceDate) || referenceDate > dateKey()) throw Error("Informe a data da conferência no portal oficial.");
+    if (!validDay2(referenceDate) || referenceDate > dateKey()) throw Error("Informe a data da conferência no portal oficial.");
     if (String(input.notes || "").trim().length > 1500 || notes.length < 12) throw Error("Descreva o que foi comparado no portal oficial (12 a 1.500 caracteres).");
     const job = latestCoverageJob(state2, c.id, source);
     if (["match", "difference"].includes(result) && !["success", "not_found"].includes(job?.status)) throw Error("Execute primeiro uma consulta concluída nessa fonte antes de declarar coincidência ou divergência.");
@@ -902,7 +1381,7 @@
     if (!state2.settings[j2.source]) throw Error("A fonte está desativada nas configurações.");
     const latest = [...state2.jobs].reverse().find((x) => x.caseId === c.id && x.cnj === c.cnj && x.source === j2.source && ["success", "not_found", "action", "error", "interrupted"].includes(x.status));
     if (latest?.id !== j2.id) throw Error("Existe um resultado mais recente para esta fonte.");
-    if (j2.source === "djen" && (j2.periodStart || j2.periodEnd) && (!validDay(j2.periodStart) || !validDay(j2.periodEnd) || j2.periodStart > j2.periodEnd)) throw Error("Período da consulta anterior inválido. Verifique o histórico antes de repetir.");
+    if (j2.source === "djen" && (j2.periodStart || j2.periodEnd) && (!validDay2(j2.periodStart) || !validDay2(j2.periodEnd) || j2.periodStart > j2.periodEnd)) throw Error("Período da consulta anterior inválido. Verifique o histórico antes de repetir.");
     const added = enqueue(state2, [c.id], [j2.source]);
     if (added && j2.source === "djen" && (j2.periodStart || j2.periodEnd)) {
       const queued = state2.jobs.at(-1);
@@ -1070,7 +1549,7 @@
       if (!row.title || row.amount <= 0 || row.paid > row.amount) throw Error("O valor deve ser positivo e o recebido não pode superar o total.");
     }
     if (row.caseId && !state2.cases.some((x) => x.id === row.caseId)) throw Error("Processo não encontrado.");
-    for (const field2 of ["due", "review"]) if (row[field2] && !validDay(row[field2])) throw Error("Data inválida.");
+    for (const field2 of ["due", "review"]) if (row[field2] && !validDay2(row[field2])) throw Error("Data inválida.");
     const index = state2[table].findIndex((x) => x.id === id);
     if (index < 0) state2[table].push(row);
     else state2[table][index] = row;
@@ -1137,15 +1616,15 @@
     if (!state2.settings.djen) throw Error("DJEN está desativado. Habilite a fonte em Fontes e ajustes antes de buscar por OAB.");
     if (!/^\d{1,8}[A-Za-z]?$/.test(state2.settings.oab) || !/^[A-Z]{2}$/.test(state2.settings.ufOab)) throw Error("Configure OAB e UF antes da busca.");
     if (state2.jobs.some((x) => x.oab === state2.settings.oab && x.ufOab === state2.settings.ufOab && ["queued", "running"].includes(x.status))) return 0;
-    if (options.periodStart !== void 0 && options.periodStart !== "" && !validDay(options.periodStart)) throw Error("Período inicial da consulta inválido.");
-    if (options.periodEnd !== void 0 && options.periodEnd !== "" && !validDay(options.periodEnd)) throw Error("Período final da consulta inválido.");
+    if (options.periodStart !== void 0 && options.periodStart !== "" && !validDay2(options.periodStart)) throw Error("Período inicial da consulta inválido.");
+    if (options.periodEnd !== void 0 && options.periodEnd !== "" && !validDay2(options.periodEnd)) throw Error("Período final da consulta inválido.");
     if (options.periodStart && options.periodEnd && options.periodStart > options.periodEnd) throw Error("Período da consulta invertido.");
     state2.jobs.push({ id: uid(), caseId: "", source: "djen", oab: state2.settings.oab, ufOab: state2.settings.ufOab, status: "queued", createdAt: now(), updatedAt: now(), cursor: null, attempt: 0, added: 0, count: 0, message: "Na fila", leaseUntil: 0, nextAt: 0, ...options });
     return 1;
   }
   var backup = (state2) => ({ format: "pauta-backup", version: 2, createdAt: now(), state: { ...structuredClone(state2), jobs: state2.jobs.map((x) => ["queued", "running"].includes(x.status) ? { ...x, status: "interrupted", needsManualRetry: true, leaseUntil: 0, message: "Pendente no momento do backup. Revise e repita manualmente; não há retomada automática após restauração." } : x), settings: { ...state2.settings, datajudKey: "" } } });
   var backupText = (v, max = 2e5) => typeof v === "string" && v.length <= max;
-  var backupDay = (v) => !v || validDay(v);
+  var backupDay = (v) => !v || validDay2(v);
   function validateBackupTables(s) {
     for (const table of TABLES) {
       if (!Array.isArray(s[table]) || s[table].length > 1e5) throw Error("Estrutura de backup inválida: " + table);
@@ -1164,7 +1643,7 @@
       for (const [field2, options] of [["court", COURTS], ["courtLevel", COURT_LEVELS], ["processSystem", PROCESS_SYSTEMS]]) {
         if (Object.hasOwn(item, field2) && (!backupText(item[field2], 40) || !Object.hasOwn(options, item[field2]))) throw Error("Classificação da amostra de cobertura inválida no backup.");
       }
-      if (!c || !validCnj(item.cnj) || !["djen", "datajud"].includes(item.source) || !Object.hasOwn(COVERAGE_RESULTS, item.result) || !validDay(item.referenceDate) || item.referenceDate > dateKey() || !backupText(item.notes, 1500) || item.notes.trim().length < 12 || typeof item.checkedAt !== "string" || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(item.checkedAt) || !Number.isFinite(Date.parse(item.checkedAt)) || new Date(item.checkedAt).toISOString() !== item.checkedAt || item.jobId !== "" && (!j2 || j2.caseId !== item.caseId || j2.cnj !== item.cnj || j2.source !== item.source || !["success", "not_found", "error", "action", "interrupted"].includes(j2.status)) || ["match", "difference"].includes(item.result) && !["success", "not_found"].includes(j2?.status)) throw Error("Amostra de cobertura inválida no backup.");
+      if (!c || !validCnj(item.cnj) || !["djen", "datajud"].includes(item.source) || !Object.hasOwn(COVERAGE_RESULTS, item.result) || !validDay2(item.referenceDate) || item.referenceDate > dateKey() || !backupText(item.notes, 1500) || item.notes.trim().length < 12 || typeof item.checkedAt !== "string" || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(item.checkedAt) || !Number.isFinite(Date.parse(item.checkedAt)) || new Date(item.checkedAt).toISOString() !== item.checkedAt || item.jobId !== "" && (!j2 || j2.caseId !== item.caseId || j2.cnj !== item.cnj || j2.source !== item.source || !["success", "not_found", "error", "action", "interrupted"].includes(j2.status)) || ["match", "difference"].includes(item.result) && !["success", "not_found"].includes(j2?.status)) throw Error("Amostra de cobertura inválida no backup.");
     }
   }
   function validateBackupClients(s) {
@@ -1246,7 +1725,7 @@
   }
   function validateBackupPayments(s, feeIds, paidByFee) {
     for (const p2 of s.payments) {
-      if (!feeIds.has(p2.feeId) || !["receipt", "reversal"].includes(p2.kind) || !Number.isSafeInteger(p2.amount) || p2.amount <= 0 || !validDay(p2.date) || !backupText(p2.notes || "", 4e3)) throw Error("Recebimento inválido no backup.");
+      if (!feeIds.has(p2.feeId) || !["receipt", "reversal"].includes(p2.kind) || !Number.isSafeInteger(p2.amount) || p2.amount <= 0 || !validDay2(p2.date) || !backupText(p2.notes || "", 4e3)) throw Error("Recebimento inválido no backup.");
       paidByFee.set(p2.feeId, paidByFee.get(p2.feeId) + (p2.kind === "reversal" ? -p2.amount : p2.amount));
     }
   }
@@ -1269,7 +1748,7 @@
   }
   function validateBackupJobPeriods(s) {
     for (const j2 of s.jobs) {
-      for (const k of ["periodStart", "periodEnd"]) if (j2[k] !== void 0 && j2[k] !== "" && !validDay(j2[k])) throw Error("Período de consulta inválido no backup.");
+      for (const k of ["periodStart", "periodEnd"]) if (j2[k] !== void 0 && j2[k] !== "" && !validDay2(j2[k])) throw Error("Período de consulta inválido no backup.");
       if (j2.periodStart && j2.periodEnd && j2.periodStart > j2.periodEnd) throw Error("Período de consulta invertido no backup.");
     }
   }
@@ -1806,53 +2285,6 @@
       tx.onabort = () => reject(error || tx.error);
       tx.onerror = () => reject(error || tx.error);
     });
-  }
-
-  // publication-details.js
-  function rawDjenDetails(item = {}) {
-    const d = {}, text = (x) => typeof x === "string" || typeof x === "number" ? String(x).trim().slice(0, 240) : "";
-    for (const [field2, key] of Object.entries({ tribunal: "siglaTribunal", orgao: "nomeOrgao", classe: "nomeClasse", tipoComunicacao: "tipoComunicacao", tipoDocumento: "tipoDocumento", meio: "meio", numeroComunicacao: "numeroComunicacao" })) if (key in item) d[field2] = text(item[key]);
-    if ("ativo" in item) d.ativo = item.ativo !== false;
-    if (Array.isArray(item.destinatarios)) d.destinatarios = item.destinatarios.filter((x) => x && typeof x === "object").map((x) => ({ nome: text(x.nome), polo: text(x.polo) }));
-    if (Array.isArray(item.destinatarioadvogados)) d.advogados = item.destinatarioadvogados.filter((x) => x && typeof x === "object").map((x) => {
-      const a = x.advogado && typeof x.advogado === "object" ? x.advogado : x;
-      return { nome: text(a.nome), numeroOab: text(a.numero_oab), ufOab: text(a.uf_oab).slice(0, 2) };
-    });
-    if (d.destinatarios) d.destinatarios.sort((a, b) => (a.nome + "|" + a.polo).localeCompare(b.nome + "|" + b.polo));
-    if (d.advogados) d.advogados.sort((a, b) => (a.nome + "|" + a.numeroOab + "|" + a.ufOab).localeCompare(b.nome + "|" + b.numeroOab + "|" + b.ufOab));
-    return d;
-  }
-  function publicationDetails(event = {}) {
-    let value = event.publicationDetails ?? event.publication_details ?? {};
-    if (typeof value === "string") {
-      try {
-        value = JSON.parse(value);
-      } catch {
-        return {};
-      }
-    }
-    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  }
-  function publicationDetailsHTML(event = {}) {
-    const d = publicationDetails(event);
-    const text = (value) => typeof value === "string" || typeof value === "number" ? String(value) : "";
-    const fields2 = [
-      ["Tribunal", d.tribunal],
-      ["Órgão da publicação", d.orgao],
-      ["Classe na publicação", d.classe],
-      ["Comunicação", d.tipoComunicacao],
-      ["Documento publicado", d.tipoDocumento],
-      ["Número da comunicação", d.numeroComunicacao]
-    ];
-    const rows = fields2.filter(([, v]) => text(v)).map(([k, v]) => `<p class="compact"><strong>${k}:</strong> ${escapeHTML(text(v))}</p>`);
-    if (d.ativo === false) rows.push('<p class="warning-note">Publicação cancelada na fonte.</p>');
-    const recipients = Array.isArray(d.destinatarios) ? d.destinatarios : [];
-    const lawyers = Array.isArray(d.advogados) ? d.advogados : [];
-    const poles = { A: "Polo ativo", P: "Polo passivo", T: "Terceiro" };
-    if (recipients.length) rows.push("<div><strong>Destinatários da publicação</strong><ul>" + recipients.filter((x) => x && text(x.nome)).map((x) => `<li>${escapeHTML(text(x.nome))}${text(x.polo) ? " · " + escapeHTML(poles[x.polo] || text(x.polo)) : ""}</li>`).join("") + "</ul></div>");
-    if (lawyers.length) rows.push("<div><strong>Advogados destinatários</strong><ul>" + lawyers.filter((x) => x && (text(x.nome) || text(x.numeroOab))).map((x) => `<li>${escapeHTML(text(x.nome))}${text(x.numeroOab) ? " · OAB " + escapeHTML(text(x.ufOab)) + " " + escapeHTML(text(x.numeroOab)) : ""}</li>`).join("") + "</ul></div>");
-    if (!rows.length) return '<p class="muted compact">Dados dos destinatários ainda não disponíveis neste registro. Consulte o DJEN para atualizar.</p>';
-    return '<details class="publication-metadata"><summary>Dados e destinatários da publicação</summary><div class="private">' + rows.join("") + "</div></details>";
   }
 
   // sources.js
@@ -2656,190 +3088,6 @@
     }
   ]);
 
-  // publication-pdf.js
-  var ZONE = "America/Sao_Paulo";
-  var validDay2 = (value) => {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-    const d = /* @__PURE__ */ new Date(value + "T12:00:00Z");
-    return !Number.isNaN(d.valueOf()) && d.toISOString().slice(0, 10) === value;
-  };
-  function publicationDateBR(value) {
-    const input = String(value ?? "").trim(), day = input.slice(0, 10);
-    if (!validDay2(day)) return "Sem data";
-    if (/^\d{4}-\d\d-\d\d$/.test(input) || !/(Z|[+-]\d\d:\d\d)$/i.test(input)) return day.slice(8) + "/" + day.slice(5, 7) + "/" + day.slice(0, 4);
-    const d = new Date(input);
-    return Number.isNaN(d.valueOf()) ? "Sem data" : new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: ZONE }).format(d);
-  }
-  function safePublicationUrl(value) {
-    if (typeof value !== "string" || value.length > 2048 || /[\x00-\x20]/.test(value)) return "";
-    try {
-      const url = new URL(value);
-      return url.protocol === "https:" && url.hostname && !url.username && !url.password ? url.href : "";
-    } catch {
-      return "";
-    }
-  }
-  function djenCertificateUrl(value) {
-    if (typeof value !== "string" || !/^[A-Za-z0-9_-]{16,128}$/.test(value)) return "";
-    return "https://comunicaapi.pje.jus.br/api/v1/comunicacao/" + value + "/certidao";
-  }
-  function officialCertificateFilename(item) {
-    return publicationPdfFilename(item).replace(/^Painel-HB-publicacao-/, "CNJ-certidao-publicacao-");
-  }
-  function downloadPdfBlob(blob, filename) {
-    const url = URL.createObjectURL(blob), link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 5e3);
-  }
-  async function fetchOfficialCertificate(item, { integrated: integrated2 = false, fetcher = fetch } = {}) {
-    const hash = item?.certificateHash ?? item?.certificate_hash;
-    const official = djenCertificateUrl(hash);
-    if (!official) throw Error("A publicação não possui código de certidão. Atualize a consulta DJEN.");
-    const localId = String(item.id ?? "");
-    if (integrated2 && !/^djen:[A-Za-z0-9:_.-]{1,120}$/.test(localId)) throw Error("Identificador da publicação inválido.");
-    const target = integrated2 ? "/api/v1/publications/" + encodeURIComponent(localId) + "/certidao" : official;
-    let response;
-    try {
-      response = await fetcher(target, { cache: "no-store", signal: AbortSignal.timeout(18e3), ...integrated2 ? { credentials: "same-origin" } : {} });
-    } catch (error) {
-      throw Error(error?.name === "TimeoutError" ? "Tempo esgotado ao baixar certidão no CNJ." : "Não foi possível baixar a certidão. No HTML direto, o navegador pode bloquear a leitura por CORS; use “Abrir certidão no CNJ”.");
-    }
-    if (!response.ok) {
-      let message = "";
-      if (integrated2) try {
-        message = (await response.json()).error || "";
-      } catch {
-      }
-      throw Error(message || "Certidão indisponível no CNJ (HTTP " + response.status + ").");
-    }
-    const limit = 8e6;
-    if (Number(response.headers?.get("content-length") || 0) > limit) throw Error("A certidão excede o limite de 8 MB.");
-    let data;
-    if (response.body?.getReader) {
-      const reader = response.body.getReader(), chunks = [];
-      let size = 0;
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          size += value.byteLength;
-          if (size > limit) throw Error("A certidão excede o limite de 8 MB.");
-          chunks.push(value);
-        }
-      } catch (error) {
-        await reader.cancel().catch(() => {
-        });
-        throw error;
-      }
-      data = new Uint8Array(size);
-      let offset = 0;
-      for (const chunk of chunks) {
-        data.set(chunk, offset);
-        offset += chunk.byteLength;
-      }
-    } else data = new Uint8Array(await response.arrayBuffer());
-    if (data.length > limit || data.length < 8 || new TextDecoder("ascii").decode(data.slice(0, 5)) !== "%PDF-") throw Error("A fonte não retornou um PDF válido; nenhum arquivo foi salvo.");
-    return new Blob([data], { type: "application/pdf" });
-  }
-  async function downloadOfficialCertificate(item, options = {}) {
-    const blob = await fetchOfficialCertificate(item, options);
-    downloadPdfBlob(blob, officialCertificateFilename(item));
-  }
-  function publicationPdfFilename(item) {
-    const date2 = String(item.date ?? item.occurred_at ?? "").slice(0, 10);
-    const cnj = String(item.cnj ?? "").replace(/\D/g, "").slice(0, 20) || "sem-cnj";
-    const suffix = String(item.id ?? "").replace(/[^a-zA-Z0-9_-]/g, "-").slice(-45) || "registro";
-    return `Painel-HB-publicacao-${cnj}-${validDay2(date2) ? date2 : "sem-data"}-${suffix}.pdf`;
-  }
-  var remap = { "€": 128, "‚": 130, "ƒ": 131, "„": 132, "…": 133, "†": 134, "‡": 135, "ˆ": 136, "‰": 137, "Š": 138, "‹": 139, "Œ": 140, "Ž": 142, "‘": 145, "’": 146, "“": 147, "”": 148, "•": 149, "–": 150, "—": 151, "˜": 152, "™": 153, "š": 154, "›": 155, "œ": 156, "ž": 158, "Ÿ": 159 };
-  var cleanText = (value) => String(value ?? "").replace(/\r\n?/g, "\n").replace(/[\t\f\v]/g, " ");
-  function winAnsi(value) {
-    let out = "";
-    for (const c of cleanText(value)) {
-      const n = c.codePointAt(0), v = remap[c] ?? (n >= 32 && n <= 126 || n >= 160 && n <= 255 ? n : 63);
-      out += String.fromCharCode(v);
-    }
-    return out;
-  }
-  var literal = (value) => winAnsi(value).replace(/[\\()]/g, "\\$&");
-  function wrap(value, max = 82) {
-    const lines = [];
-    for (const paragraph of cleanText(value).split("\n")) {
-      if (!paragraph.trim()) {
-        lines.push("");
-        continue;
-      }
-      let line = "";
-      for (const word of paragraph.trim().split(/\s+/)) {
-        if (line && line.length + 1 + word.length > max) {
-          lines.push(line);
-          line = "";
-        }
-        if (word.length > max) {
-          if (line) {
-            lines.push(line);
-            line = "";
-          }
-          for (let i = 0; i < word.length - max; i += max) lines.push(word.slice(i, i + max));
-          line = word.slice(Math.max(0, word.length - word.length % max));
-          if (!line) line = word.slice(-max);
-        } else line += (line ? " " : "") + word;
-      }
-      lines.push(line);
-    }
-    return lines;
-  }
-  function bytes(text) {
-    const output = new Uint8Array(text.length);
-    for (let i = 0; i < text.length; i++) output[i] = text.charCodeAt(i) & 255;
-    return output;
-  }
-  function publicationPdfBlob(item) {
-    if (!item || typeof item !== "object") throw Error("Publicação inválida para exportação.");
-    const fields2 = [`Processo: ${item.cnj || "Não informado"}`, `Data: ${publicationDateBR(item.date ?? item.occurred_at)}`, `Fonte: ${item.tribunal || item.source || "Não informada"}`];
-    const url = safePublicationUrl(item.url);
-    if (url) fields2.push("Link da fonte: " + url);
-    const lines = [...fields2.flatMap((x) => wrap(x)), "", ...wrap(item.text || "Conteúdo não informado."), "", ...wrap("Cópia local gerada pelo Painel H.B. Confira o texto e as informações no portal oficial; este PDF não substitui a publicação original.")];
-    const perPage = 42, pages = [];
-    for (let i = 0; i < lines.length; i += perPage) pages.push(lines.slice(i, i + perPage));
-    if (!pages.length) pages.push([]);
-    const objects = [null], add = (v) => (objects.push(v), objects.length - 1);
-    const fontRegular = add("<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>");
-    const fontTitle = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>");
-    const pagesId = add("");
-    const pageIds = [];
-    pages.forEach((lines2, index) => {
-      let stream = "0.16 0.32 0.23 rg\nBT /F2 17 Tf 45 788 Td (" + literal("Publicação judicial · Painel H.B") + ") Tj ET\n";
-      stream += "0.75 0.82 0.72 RG 45 774 m 550 774 l S\n";
-      lines2.forEach((line, i) => {
-        stream += "0.16 0.20 0.17 rg\nBT /F1 10 Tf 45 " + (743 - i * 15) + " Td (" + literal(line) + ") Tj ET\n";
-      });
-      stream += "0.48 0.52 0.47 rg\nBT /F1 9 Tf 45 39 Td (" + literal("Painel H.B · cópia não oficial · página " + (index + 1) + " de " + pages.length) + ") Tj ET\n";
-      const contentId = add("<< /Length " + bytes(stream).length + " >>\nstream\n" + stream + "endstream");
-      pageIds.push(add("<< /Type /Page /Parent " + pagesId + " 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 " + fontRegular + " 0 R /F2 " + fontTitle + " 0 R >> >> /Contents " + contentId + " 0 R >>"));
-    });
-    objects[pagesId] = "<< /Type /Pages /Kids [" + pageIds.map((n) => n + " 0 R").join(" ") + "] /Count " + pageIds.length + " >>";
-    const catalogId = add("<< /Type /Catalog /Pages " + pagesId + " 0 R >>");
-    let output = "%PDF-1.4\n%âãÏÓ\n";
-    const offsets = [0];
-    for (let i = 1; i < objects.length; i++) {
-      offsets[i] = bytes(output).length;
-      output += i + " 0 obj\n" + objects[i] + "\nendobj\n";
-    }
-    const xref = bytes(output).length;
-    output += "xref\n0 " + objects.length + "\n0000000000 65535 f \n";
-    for (let i = 1; i < objects.length; i++) output += String(offsets[i]).padStart(10, "0") + " 00000 n \n";
-    output += "trailer\n<< /Size " + objects.length + " /Root " + catalogId + " 0 R >>\nstartxref\n" + xref + "\n%%EOF\n";
-    return new Blob([bytes(output)], { type: "application/pdf" });
-  }
-  function downloadPublicationPdf(item) {
-    downloadPdfBlob(publicationPdfBlob(item), publicationPdfFilename(item));
-  }
-
   // text-utils.js
   var fold = (value) => String(value ?? "").normalize("NFD").replace(new RegExp("\\p{M}", "gu"), "").toLocaleLowerCase("pt-BR");
 
@@ -3602,7 +3850,7 @@
     if (!value) return "";
     const br = value.match(/^(\d\d?)\/(\d\d?)\/(\d{4})$/);
     const iso = br ? `${br[3]}-${br[2].padStart(2, "0")}-${br[1].padStart(2, "0")}` : value;
-    if (!validDay(iso)) throw Error("Data para revisar inválida ou numérica; use DD/MM/AAAA.");
+    if (!validDay2(iso)) throw Error("Data para revisar inválida ou numérica; use DD/MM/AAAA.");
     return iso;
   }
   function hearingDateFromCell(value, date1904 = false) {
@@ -3614,11 +3862,11 @@
       if (!Number.isFinite(serial) || !Number.isInteger(serial) || days < (date1904 ? 1 : 61) || days > 73050) return "";
       const date2 = new Date(Date.UTC(date1904 ? 1904 : 1899, date1904 ? 0 : 11, date1904 ? 1 : 30) + days * 864e5);
       const iso2 = date2.toISOString().slice(0, 10);
-      return validDay(iso2) ? iso2 : "";
+      return validDay2(iso2) ? iso2 : "";
     }
     const br = /^(\d\d?)\/(\d\d?)\/(\d{4})$/.exec(text);
     const iso = br ? `${br[3]}-${br[2].padStart(2, "0")}-${br[1].padStart(2, "0")}` : text;
-    return validDay(iso) ? iso : "";
+    return validDay2(iso) ? iso : "";
   }
   function hearingTimeFromCell(value) {
     if (!value?.text?.trim() || value.kind === "formula") return "";
@@ -4065,222 +4313,6 @@
     if (!serviceOnline) throw Error("Abra o modo integrado antes de restaurar dados de monitoramento.");
     await apiPost("restore", { monitoring });
     lastRevision = -1;
-  }
-
-  // integrated-case-view.js
-  var ZONE2 = "America/Sao_Paulo";
-  var dateWithZone = new Intl.DateTimeFormat("pt-BR", {
-    timeZone: ZONE2,
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23"
-  });
-  function caseMoment(value) {
-    if (typeof value !== "string" || !value.trim()) return null;
-    const raw = value.trim();
-    const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
-    const withoutZone = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?$/.exec(raw);
-    if (dateOnly || withoutZone) {
-      const parts = dateOnly || withoutZone;
-      const year = Number(parts[1]), month = Number(parts[2]), day = Number(parts[3]);
-      const valid = new Date(Date.UTC(year, month - 1, day));
-      if (year < 1e3 || valid.getUTCFullYear() !== year || valid.getUTCMonth() !== month - 1 || valid.getUTCDate() !== day) return null;
-      if (dateOnly) return { text: `${parts[3]}/${parts[2]}/${parts[1]}`, datetime: raw, kind: "date" };
-      const hour = Number(parts[4]), minute = Number(parts[5]), second = Number(parts[6] || 0);
-      if (hour > 23 || minute > 59 || second > 59) return null;
-      return {
-        text: `${parts[3]}/${parts[2]}/${parts[1]} às ${parts[4]}:${parts[5]}`,
-        datetime: raw,
-        kind: "no-zone"
-      };
-    }
-    if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d(?:\.\d+)?)?(?:Z|[+-]\d\d:\d\d)$/i.test(raw)) return null;
-    const calendar = raw.slice(0, 10).split("-").map(Number);
-    const check = new Date(Date.UTC(calendar[0], calendar[1] - 1, calendar[2]));
-    if (calendar[0] < 1e3 || check.getUTCFullYear() !== calendar[0] || check.getUTCMonth() !== calendar[1] - 1 || check.getUTCDate() !== calendar[2]) return null;
-    const parsed = new Date(raw);
-    if (Number.isNaN(parsed.valueOf())) return null;
-    const fields2 = Object.fromEntries(dateWithZone.formatToParts(parsed).map(({ type, value: value2 }) => [type, value2]));
-    return {
-      text: `${fields2.day}/${fields2.month}/${fields2.year} às ${fields2.hour}:${fields2.minute}`,
-      datetime: raw,
-      kind: "converted"
-    };
-  }
-  function label(value) {
-    if (value && typeof value === "object" && !Array.isArray(value)) value = value.nome || value.descricao || value.name || "";
-    if (typeof value !== "string") return "";
-    const text = value.replace(/\s+/gu, " ").trim();
-    return /^c[oó]digo\s*\d+$/iu.test(text) || /^\d+$/u.test(text) || /^\[object\s+object\]$/iu.test(text) || /^[{[]/u.test(text) ? "" : text.slice(0, 240);
-  }
-  function courtDegree(value) {
-    const normalized2 = label(value).toUpperCase().replace(/\s+/gu, " ");
-    if (["G1", "1", "1º GRAU", "1° GRAU", "1ª INSTÂNCIA", "PRIMEIRO GRAU"].includes(normalized2)) return "1º grau";
-    if (["G2", "2", "2º GRAU", "2° GRAU", "2ª INSTÂNCIA", "SEGUNDO GRAU"].includes(normalized2)) return "2º grau";
-    if (["SUP", "SUPERIOR", "TRIBUNAL SUPERIOR"].includes(normalized2)) return "Tribunal superior";
-    return "Grau não identificado";
-  }
-  var sourceLabel = (value) => ({
-    datajud: "DataJud",
-    djen: "DJEN",
-    esaj_pg: "TJSP e-SAJ · 1º grau",
-    esaj_sg: "TJSP e-SAJ · 2º grau"
-  })[value] || label(value) || "Fonte não identificada";
-  function tramitationGroups(records) {
-    const order = ["1º grau", "2º grau", "Tribunal superior", "Grau não identificado"];
-    const groups = /* @__PURE__ */ new Map();
-    for (const item of records) {
-      const degree = courtDegree(item.grau);
-      if (!groups.has(degree)) groups.set(degree, []);
-      groups.get(degree).push(item);
-    }
-    return order.filter((x) => groups.has(x)).map((name) => ({ name, records: groups.get(name) }));
-  }
-  function probableCrossDegreeDuplicates(events, tramitations) {
-    const tracks = new Map(tramitations.map((x) => [String(x.id || ""), { source: x.source, degree: courtDegree(x.grau) }]));
-    const groups = /* @__PURE__ */ new Map(), possible = /* @__PURE__ */ new Set();
-    for (const event of events) {
-      const track = tracks.get(String(event.tramitation_id || ""));
-      const description = typeof event.text === "string" ? event.text.replace(/\s+/gu, " ").trim().toLocaleLowerCase("pt-BR") : "";
-      if (!track || track.degree === "Grau não identificado" || track.source !== event.source || !event.occurred_at || !description) continue;
-      const key = JSON.stringify([event.source, String(event.occurred_at).trim(), description]);
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push({ event, degree: track.degree });
-    }
-    for (const items of groups.values()) {
-      if (new Set(items.map((x) => x.degree)).size > 1)
-        for (const item of items) possible.add(String(item.event.source) + "\0" + String(item.event.id));
-    }
-    return possible;
-  }
-  var plural = (count, one, many) => `${count.toLocaleString("pt-BR")} ${count === 1 ? one : many}`;
-  function latestMoment(values, oldest = false) {
-    const valid = values.filter((x) => caseMoment(x));
-    if (!valid.length) return "";
-    const key = (value) => {
-      const moment2 = caseMoment(value);
-      if (moment2.kind === "converted") return Date.parse(value);
-      return Date.parse(value.replace(" ", "T") + (moment2.kind === "date" ? "T00:00:00" : "") + "Z");
-    };
-    valid.sort((a, b) => key(a) - key(b));
-    return oldest ? valid[0] : valid[valid.length - 1];
-  }
-  function readableTime(value) {
-    const moment2 = caseMoment(value);
-    if (!moment2) return "";
-    const title = moment2.kind === "converted" ? "Exibido no horário de Brasília (America/Sao_Paulo)" : moment2.kind === "no-zone" ? "A fonte não forneceu fuso; hora exibida sem conversão" : "Data sem horário informado pela fonte";
-    return `<time datetime="${escapeHTML(moment2.datetime)}" title="${escapeHTML(title)}">${escapeHTML(moment2.text)}</time>`;
-  }
-  function tramitationHTML(item) {
-    const tribunal = label(item.tribunal), system = label(item.sistema), organ = label(item.orgao);
-    const klass = label(item.classe);
-    const summary = [
-      tribunal && `<span><strong>Tribunal:</strong> ${escapeHTML(tribunal)}</span>`,
-      system && `<span><strong>Sistema:</strong> ${escapeHTML(system)}</span>`,
-      organ && `<span><strong>Órgão julgador:</strong> ${escapeHTML(organ)}</span>`,
-      klass && `<span><strong>Classe:</strong> ${escapeHTML(klass)}</span>`,
-      Array.isArray(item.assuntos) && item.assuntos.map(label).filter(Boolean).length ? `<span><strong>Assuntos:</strong> ${escapeHTML(item.assuntos.map(label).filter(Boolean).join(" · "))}</span>` : "",
-      caseMoment(item.dataAjuizamento) ? `<span><strong>Ajuizamento:</strong> ${readableTime(item.dataAjuizamento)}</span>` : ""
-    ].filter(Boolean);
-    return `<article class="integrated-tramitation"><div class="integrated-tramitation-head"><span class="integrated-source">${escapeHTML(sourceLabel(item.source))}</span></div>` + (summary.length ? `<div class="integrated-track-meta">${summary.join("")}</div>` : '<p class="muted compact">Esta tramitação não trouxe dados adicionais de identificação.</p>') + "</article>";
-  }
-  function eventHTML(item, caseId, trackById, duplicates) {
-    const when = readableTime(item.occurred_at);
-    const track = trackById.get(String(item.tramitation_id || ""));
-    const degree = track ? courtDegree(track.grau) : "";
-    const isPending = !!item.is_new && !item.seen;
-    const duplicate = duplicates.has(String(item.source) + "\0" + String(item.id));
-    const text = typeof item.text === "string" && item.text.trim() ? item.text.trim() : "Descrição não informada pela fonte.";
-    const snippet = text.replace(/\s+/gu, " ").slice(0, 145);
-    return `<article class="integrated-event${isPending ? " integrated-event-pending" : ""}" data-event-source="${escapeHTML(item.source)}" data-event-id="${escapeHTML(item.id)}"><details class="integrated-event-disclosure"><summary class="integrated-event-summary"><span class="integrated-event-date">${when || "Data do evento não informada"}</span><span class="integrated-event-tags"><span class="integrated-source">${escapeHTML(sourceLabel(item.source))}</span>` + (track && degree !== "Grau não identificado" ? `<span class="integrated-degree">${escapeHTML(degree)}</span>` : "") + (item.kind === "publication" ? '<span class="integrated-degree">Publicação</span>' : "") + "</span>" + (isPending ? '<span class="integrated-pending-tag">Por conferir</span>' : "") + `<span class="integrated-event-snippet private">${escapeHTML(snippet)}</span><span class="integrated-event-caret" aria-hidden="true">⌄</span></summary><div class="integrated-event-extra"><p class="integrated-event-text private">${escapeHTML(text)}</p>` + (item.source === "djen" ? publicationDetailsHTML(item) + '<div class="publication-actions">' + (safePublicationUrl(item.url) ? `<a class="button ghost small" href="${escapeHTML(safePublicationUrl(item.url))}" target="_blank" rel="noopener noreferrer">Abrir publicação na fonte</a>` : "") + (djenCertificateUrl(item.certificate_hash) ? `<a class="button secondary small" href="${escapeHTML(djenCertificateUrl(item.certificate_hash))}" target="_blank" rel="noopener noreferrer">Abrir certidão oficial</a>` : "") + "</div>" : "") + (duplicate ? '<p class="integrated-possible-duplicate" title="A mesma data e descrição aparecem em tramitações de graus diferentes; são registros distintos e foram preservados.">Possível repetição em outro grau · confira ambos os registros</p>' : "") + (isPending ? `<button type="button" class="button secondary small" data-integrated="seen" data-id="${escapeHTML(item.id)}" data-case-id="${escapeHTML(caseId)}" data-source="${escapeHTML(item.source)}">Marcar como conferido (controle interno)</button>` : "") + "</div></details></article>";
-  }
-  var CASE_HISTORY_PAGE_SIZE = 12;
-  function historyPage(records, requestedPage = 1, pageSize = CASE_HISTORY_PAGE_SIZE) {
-    const count = records.length;
-    const pages = Math.max(1, Math.ceil(count / pageSize));
-    const page = Math.min(pages, Math.max(1, Math.trunc(Number(requestedPage) || 1)));
-    const start2 = (page - 1) * pageSize;
-    return { page, pages, start: start2, end: Math.min(start2 + pageSize, count), count, items: records.slice(start2, start2 + pageSize) };
-  }
-  function technicalHTML(info, items, track) {
-    const first = latestMoment(items.map((x) => x.first_seen), true);
-    const last = latestMoment(items.map((x) => x.last_seen));
-    const sourceUpdated = latestMoment([...items.map((x) => x.source_updated_at), ...track.map((x) => x.ultimaAtualizacaoFonte)]);
-    const values = [
-      ["Primeira identificação no histórico exibido", first, "Primeira vez que o serviço registrou um dos eventos exibidos; não é a data do movimento."],
-      ["Última identificação no histórico exibido", last, "Última vez que um evento exibido foi novamente identificado na fonte."],
-      ["Última consulta tentada", info.lastAttempt?.attempted_at, "Quando o serviço local tentou consultar a fonte, mesmo que tenha falhado."],
-      ["Última consulta com resposta", info.lastSuccess?.attempted_at, "Quando a fonte retornou um resultado, inclusive parcial ou sem registros."],
-      ["Atualização informada pela fonte", sourceUpdated, "Atualização mais recente entre as fontes consultadas; não representa a data do movimento."]
-    ];
-    const perSource = /* @__PURE__ */ new Map();
-    for (const item of [
-      ...items.map((x) => ({ source: x.source, when: x.source_updated_at })),
-      ...track.map((x) => ({ source: x.source, when: x.ultimaAtualizacaoFonte }))
-    ]) {
-      if (!caseMoment(item.when)) continue;
-      const values2 = perSource.get(item.source) || [];
-      values2.push(item.when);
-      perSource.set(item.source, values2);
-    }
-    if (perSource.size > 1) {
-      for (const [key, timestamps] of perSource)
-        values.push([
-          "Atualização · " + sourceLabel(key),
-          latestMoment(timestamps),
-          "Último carimbo de atualização disponível para esta fonte."
-        ]);
-    }
-    const lines = values.filter(([, value]) => caseMoment(value));
-    const corrections = items.reduce((n, x) => n + (Number(x.correction_count) || 0), 0);
-    return `<details class="integrated-technical"><summary>Informações técnicas das consultas <span class="integrated-expand">Mostrar detalhes</span></summary>` + (lines.length ? `<dl class="integrated-technical-grid">${lines.map(([name, value, description]) => `<div><dt>${escapeHTML(name)}</dt><dd>${readableTime(value)}</dd><p>${escapeHTML(description)}</p></div>`).join("")}</dl>` : '<p class="muted compact">Ainda não há datas técnicas disponíveis nesta consulta.</p>') + (corrections ? `<p class="muted compact">Correções de conteúdo registradas: ${plural(corrections, "correção", "correções")}.</p>` : "") + (info.previousNumberEvents ? '<p class="muted compact">Há registros preservados para CNJ anterior, não exibidos neste processo.</p>' : "") + '<p class="muted compact">Identificação e consulta são registros internos do Painel H.B; não representam a ocorrência ou publicação judicial.</p></details>';
-  }
-  function sourceStatusHTML(info, caseId) {
-    const jobs = Array.isArray(info.sourceJobs) ? info.sourceJobs : [];
-    const states = {
-      queued: "Na fila",
-      running: "Consultando",
-      success: "Consulta concluída",
-      partial: "Resultado parcial",
-      not_found: "Sem registros na consulta",
-      unavailable: "Fonte indisponível",
-      auth_required: "Autenticação necessária",
-      access_denied: "Acesso negado",
-      unsupported: "Não disponível",
-      incompatible: "Resposta incompatível",
-      cancelled: "Consulta cancelada"
-    };
-    return jobs.map((job) => `<article class="record" ${job.status === "running" ? 'data-loading="true" data-loading-fixed aria-busy="true"' : ""}><strong>${escapeHTML(sourceLabel(job.source))} · ${escapeHTML(states[job.status] || "Situação não identificada")}</strong><p class="compact">${escapeHTML(job.source === "djen" && job.status === "not_found" ? "Nenhuma publicação encontrada no período consultado. Isso não significa que o processo não existe." : job.message || "Consulta aguardando resultado.")}</p>` + (job.updated_at ? `<small>${readableTime(job.updated_at)}</small>` : "") + "</article>").join("");
-  }
-  function integratedCaseHTML(info, caseId, pageState = {}) {
-    const items = Array.isArray(info?.events) ? info.events : [];
-    const track = Array.isArray(info?.tramitations) ? info.tramitations.filter((x) => x.source === "datajud") : [];
-    const pending = items.filter((x) => !!x.is_new && !x.seen);
-    const movements = items.filter((x) => x.kind !== "publication").length;
-    const publications2 = items.filter((x) => x.kind === "publication").length;
-    const historyDescription = items.length >= 2e3 ? "no histórico exibido" : "no histórico";
-    const count = items.length ? movements && publications2 ? `${plural(movements, "movimento", "movimentos")} · ${plural(publications2, "publicação", "publicações")} ${historyDescription}` : movements ? `${plural(movements, "movimento", "movimentos")} ${historyDescription}` : `${plural(publications2, "publicação", "publicações")} ${historyDescription}` : "Nenhum evento no histórico";
-    const trackById = new Map(track.map((x) => [String(x.id || ""), x]));
-    const duplicates = probableCrossDegreeDuplicates(items, track);
-    const groupHTML = tramitationGroups(track).map(({ name, records }) => `<section class="integrated-degree-group" aria-label="Tramitações do ${escapeHTML(name)}"><header class="integrated-degree-heading"><h5>${escapeHTML(name)}</h5><span>${plural(records.length, "registro", "registros")}</span></header><div class="integrated-tramitation-list">${records.map(tramitationHTML).join("")}</div></section>`).join("");
-    const eventList = (events, source, kind) => {
-      const key = `${source}-${kind}`;
-      const slice = historyPage(events, pageState[key]);
-      const controls = slice.pages > 1 ? `<nav class="case-history-pagination" aria-label="Páginas de ${escapeHTML(sourceLabel(source))} · ${kind === "news" ? "novidades" : "histórico"}"><span>Mostrando ${slice.start + 1}–${slice.end} de ${slice.count} · Página ${slice.page} de ${slice.pages}</span><div><button type="button" class="button ghost small" data-integrated="events-page" data-key="${escapeHTML(key)}" data-page="${slice.page - 1}" ${slice.page === 1 ? "disabled" : ""} aria-label="Página anterior">Anterior</button><button type="button" class="button ghost small" data-integrated="events-page" data-key="${escapeHTML(key)}" data-page="${slice.page + 1}" ${slice.page === slice.pages ? "disabled" : ""} aria-label="Próxima página">Próxima</button></div></nav>` : "";
-      return `<div class="integrated-event-list">${slice.items.map((item) => eventHTML(item, caseId, trackById, duplicates)).join("")}</div>${controls}`;
-    };
-    const block = (source, title, description) => {
-      const selected2 = items.filter((x) => x.source === source);
-      const news = selected2.filter((x) => !!x.is_new && !x.seen), history = selected2.filter((x) => !x.is_new || !!x.seen);
-      const disabled = info.enabledSources?.[source] === false;
-      const action2 = source === "datajud" ? "Buscar andamentos no DataJud" : "Buscar publicações no DJEN";
-      return `<section class="integrated-block" aria-label="${title}"><h4>${title}</h4><p class="muted compact">${description}</p><button type="button" class="button secondary small" data-integrated="update-${source}" data-id="${escapeHTML(caseId)}" ${disabled ? "disabled" : ""}>${action2}</button>` + (disabled ? `<p class="warning-note">Habilite ${sourceLabel(source)} em Fontes e ajustes para consultar.</p>` : "") + (source === "djen" ? `<p class="muted compact">Período da busca DJEN: últimos ${Number(info.djenDays) || 30} dias.</p>` : "") + sourceStatusHTML({ ...info, sourceJobs: (info.sourceJobs || []).filter((x) => x.source === source) }, caseId) + `<div aria-label="Novidades por conferir"><h5>Por conferir · ${news.length}</h5>` + (news.length ? eventList(news, source, "news") : '<p class="integrated-empty">Nenhuma novidade pendente de conferência.</p>') + `</div><div aria-label="Histórico de eventos"><h5>Histórico · ${history.length}</h5>` + (history.length ? eventList(history, source, "history") : '<p class="integrated-empty">Não há outros registros no histórico desta consulta.</p>') + "</div>" + (source === "datajud" ? `<section aria-label="Tramitações agrupadas por grau"><h5>Metadados e tramitações por grau</h5>${track.length ? groupHTML : '<p class="integrated-empty">Nenhuma tramitação estruturada disponível nesta fonte.</p>'}</section>` : "") + "</section>";
-    };
-    const other = items.filter((x) => !["datajud", "djen"].includes(x.source));
-    return `<div class="integrated-overview"><h3>Acompanhamento integrado</h3><p class="integrated-count" aria-live="polite"><strong>${escapeHTML(count)}</strong> · <strong>${plural(pending.length, "por conferir", "por conferir")}</strong></p><p class="muted compact">Novidade significa identificada após a linha de base ou consulta anterior — não necessariamente um movimento ocorrido recentemente.</p><p class="integrated-timezone">Datas e horas com fuso são exibidas no horário de Brasília. Sem fuso informado, o horário é mantido.</p>` + (items.length >= 2e3 ? '<p class="muted compact">Exibindo os 2.000 registros mais recentes retornados pelo serviço.</p>' : "") + "</div>" + block("datajud", "Andamentos · DataJud", "Movimentações enviadas pelo tribunal e metadados estruturados do processo. A consulta não fornece o teor das decisões.") + block("djen", "Publicações · DJEN", "Textos publicados, destinatários, advogados e certidões. Publicações não representam todos os andamentos dos autos.") + (other.length ? '<section class="integrated-block"><h4>Outras fontes</h4>' + eventList(other, "other", "history") + "</section>" : "") + technicalHTML(info, items, track) + '<p class="muted compact">Documentos dos autos: use os links oficiais quando disponíveis. Uma certidão DJEN não equivale ao PDF original da decisão.</p>';
   }
 
   // djen-name-search.js
@@ -5655,10 +5687,6 @@
     const entries = state.payments.filter((p2) => p2.feeId === id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     dialog("Recebimentos · " + fee.title, `<p class="subheading private">Total ${money(fee.amount)} · Recebido ${money(fee.paid)} · Saldo ${money(fee.amount - fee.paid)}</p>${fee.paid < fee.amount ? `<form id="payment-form" data-id="${escapeHTML(id)}"><div class="form-grid">${field("Valor recebido (R$)", "amount", "", "number", false, `required min="0.01" max="${((fee.amount - fee.paid) / 100).toFixed(2)}" step="0.01"`)}${field("Data do recebimento", "date", dateKey(), "date", false, "required")}${area("Observações", "notes")}</div><p class="form-error" role="alert"></p><div class="form-actions"><button class="button primary" type="submit">Registrar recebimento</button></div></form>` : '<div class="intro-note">Honorário integralmente recebido.</div>'}<div class="detail-section"><h3>Histórico de lançamentos</h3>${entries.map((p2) => `<article class="record"><div class="record-head"><div><h3>${p2.kind === "reversal" ? "Estorno" : "Recebimento"} · <span class="private">${p2.kind === "reversal" ? "− " : ""}${money(p2.amount)}</span></h3><small>${date(p2.date)}${p2.opening ? " · Saldo importado da 0.1" : ""}</small></div>${p2.kind === "receipt" ? state.payments.some((x) => x.reverses === p2.id) ? tag("Estornado") : button("reverse-payment", "Estornar", "ghost small", p2.id) : tag("Estorno")}</div><p class="private">${escapeHTML(p2.notes || "Sem observações")}</p></article>`).join("") || '<p class="muted">Nenhum recebimento registrado.</p>'}</div>`, true);
   }
-  function documentsSection(id) {
-    const items = state.documents.filter((d) => d.caseId === id);
-    return `<div class="detail-section"><div class="panel-heading"><h3>Anexos · ${items.length}</h3>${button("attach", "Anexar documento", "secondary small", id)}</div><p class="muted compact">PDF, PNG, JPEG, WebP ou TXT UTF-8. Até 5 MB por arquivo e 25 MB no total. Armazenamento local, incluído no backup.</p>${items.map((d) => `<article class="record"><div class="record-head"><div><strong class="private">${escapeHTML(d.name)}</strong><small>${(d.size / 1024).toFixed(1)} KB · ${date(d.createdAt)}</small></div><div class="line-actions">${button("download-document", "Baixar", "secondary small", d.id)}${button("remove-document", "Remover", "ghost small", d.id)}</div></div></article>`).join("") || '<p class="muted">Nenhum documento anexado.</p>'}</div>`;
-  }
   function officialSection(c) {
     const info = officialConsultation(c);
     if (!info) return c.cnj || c.docketNumber ? '<div class="detail-section"><h3>Consulta oficial</h3><p class="muted compact">Selecione um tribunal atendido na edição do processo para abrir os portais de consulta manual. Nenhuma consulta será executada automaticamente.</p></div>' : "";
@@ -5688,10 +5716,6 @@
       $("#dialog-body").insertAdjacentHTML("beforeend", documentsSection(id));
       void loadIntegratedCase(id);
     }
-  }
-  function relatedProceedings(c) {
-    const parent = state.cases.find((x) => x.id === c.parentCaseId), children = state.cases.filter((x) => x.parentCaseId === c.id);
-    return `<div class="detail-section"><h3>Tramitação e vínculos</h3><p class="private">${escapeHTML(jurisdictionLabel(c) || "Tribunal e grau não informados")}</p>${c.docketNumber ? `<p class="private">Registro adicional: ${escapeHTML(c.docketNumber)}</p>` : ""}${c.originReference ? `<p class="private">Referência de origem: ${escapeHTML(c.originReference)}</p>` : ""}${parent ? `<p class="private">Origem: ${button("detail", "Abrir " + escapeHTML(parent.title), "secondary small", parent.id)}</p>` : ""}${children.map((x) => `<p class="private">Relacionado: ${button("detail", "Abrir " + escapeHTML(x.title), "secondary small", x.id)}</p>`).join("")}<p class="muted compact">Vínculos manuais. Eventos e documentos permanecem associados ao processo original.</p></div>`;
   }
   function eventRecord(e) {
     const actionId = e.key, baseline = e.remote && !e.is_new && !e.seen && !e.localIds.length;
@@ -5846,25 +5870,6 @@
   }
   var activeDetailCaseId = "";
   var localHistoryPage = 1;
-  function localHistoryHTML(events) {
-    if (!events.length) return '<p class="muted">As informações encontradas nas fontes aparecerão aqui.</p>';
-    const slice = historyPage(events, localHistoryPage);
-    localHistoryPage = slice.page;
-    const entries = slice.items.map((e) => {
-      const label2 = e.kind === "publication" ? "Publicação" : "Movimentação";
-      const url = safePublicationUrl(e.url), certificate = djenCertificateUrl(e.certificateHash);
-      const summary = String(e.text || "Descrição não informada").replace(/\s+/gu, " ").slice(0, 145);
-      return `<article class="case-history-event"><details><summary class="case-history-summary"><time class="case-history-date">${escapeHTML(publicationDateBR(e.date))}</time><span class="integrated-source">${escapeHTML(e.tribunal || e.source || "Fonte não informada")}</span><span class="integrated-degree">${label2}</span>${e.publicationStatus === "Cancelada" ? tag("Publicação cancelada", "action") : ""}${!e.seen ? '<span class="integrated-pending-tag">Por conferir</span>' : ""}<span class="case-history-snippet private">${escapeHTML(summary)}</span><span class="integrated-event-caret" aria-hidden="true">⌄</span></summary><div class="case-history-extra private"><p>${escapeHTML(e.text || "Descrição não informada")}</p>${e.source === "djen" ? publicationDetailsHTML(e) : ""}<p class="muted compact">Identificado em ${timestamp(e.discoveredAt)}${e.sourceUpdatedAt ? " · Atualização da fonte: " + escapeHTML(e.sourceUpdatedAt) : ""}</p><div class="case-history-actions">${button("seen", e.seen ? "Desmarcar conferência" : "Marcar como conferido", "ghost small", e.id)}${e.kind === "publication" ? button("publication-pdf", "Baixar cópia (PDF)", "secondary small", e.id) + (certificate ? button("publication-official-pdf", "Baixar certidão oficial", "secondary small", e.id) : "") : ""}${url ? `<a href="${escapeHTML(url)}" class="button ghost small" target="_blank" rel="noopener noreferrer">Abrir na fonte</a>` : ""}${certificate ? `<a href="${escapeHTML(certificate)}" class="button ghost small" target="_blank" rel="noopener noreferrer">Abrir certidão no CNJ</a>` : ""}</div></div></details></article>`;
-    }).join("");
-    const pagination = slice.pages > 1 ? `<nav class="case-history-pagination" aria-label="Páginas do histórico local"><span>Mostrando ${slice.start + 1}–${slice.end} de ${slice.count} · Página ${slice.page} de ${slice.pages}</span><div><button type="button" class="button ghost small" data-case-page="${slice.page - 1}" ${slice.page === 1 ? "disabled" : ""}>Anterior</button><button type="button" class="button ghost small" data-case-page="${slice.page + 1}" ${slice.page === slice.pages ? "disabled" : ""}>Próxima</button></div></nav>` : "";
-    return `<div class="case-history-list">${entries}</div>${pagination}`;
-  }
-  function refreshLocalHistory() {
-    const section = $("#local-case-history");
-    if (!section || !activeDetailCaseId) return;
-    const events = state.events.filter((e) => e.caseId === activeDetailCaseId).sort((a, b) => b.date.localeCompare(a.date));
-    section.innerHTML = `<h3>Histórico · ${events.length} registro(s)</h3>${localHistoryHTML(events)}`;
-  }
   function detail(id) {
     const c = state.cases.find((x) => x.id === id);
     if (!c) return;
@@ -6191,6 +6196,12 @@
     } },
     publicationFetched: { get: () => publicationFetched, set: (value) => {
       publicationFetched = value;
+    } },
+    activeDetailCaseId: { get: () => activeDetailCaseId, set: (value) => {
+      activeDetailCaseId = value;
+    } },
+    localHistoryPage: { get: () => localHistoryPage, set: (value) => {
+      localHistoryPage = value;
     } }
   });
   var boardViews = createBoardViews(viewApp);
@@ -6229,6 +6240,7 @@
     pendingManualReviews,
     pendingSourceIssues,
     pendingOabIssue,
+    jurisdictionLabel,
     SCHEDULE_GROUPS,
     SCHEDULE_SORTS,
     routes,
@@ -6253,6 +6265,17 @@
     COURT_LEVELS,
     autoScheduleInfo
   });
+  var caseDetailView = createCaseDetailView(viewApp);
+  Object.assign(viewApp, {
+    documentsSection: caseDetailView.documentsSection,
+    relatedProceedings: caseDetailView.relatedProceedings,
+    localHistoryHTML: caseDetailView.localHistoryHTML,
+    refreshLocalHistory: caseDetailView.refreshLocalHistory
+  });
+  var documentsSection = (id) => caseDetailView.documentsSection(id);
+  var relatedProceedings = (item) => caseDetailView.relatedProceedings(item);
+  var localHistoryHTML = (events) => caseDetailView.localHistoryHTML(events);
+  var refreshLocalHistory = () => caseDetailView.refreshLocalHistory();
   async function action(name, id, caseId = "") {
     const handler = actionHandlers[name];
     if (handler) return handler({ name, id, caseId });
