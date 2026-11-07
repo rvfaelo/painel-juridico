@@ -5,7 +5,7 @@ Nunca servir a rede, aceitar Origin:null ou caminhos locais arbitrarios.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from logging.handlers import RotatingFileHandler
@@ -33,7 +33,7 @@ from .workspace import Workspace, WorkspaceConflict
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8766
-APP_VERSION = "0.6.4"
+APP_VERSION = "0.6.5"
 ROOT = Path(__file__).resolve().parent.parent
 SESSION_COOKIE = "pauta_session"
 SESSION_TTL = 12 * 60 * 60
@@ -599,11 +599,18 @@ class Handler(BaseHTTPRequestHandler):
                 number = body.get("cnj")
                 if not isinstance(number, str) or len(number) > 25 or not valid_cnj(number):
                     return self.respond({"error": "Informe um número CNJ válido."}, 400)
+                days = body.get("days", store.settings().get("djenDays", 30))
+                if type(days) is not int or not 1 <= days <= 365:
+                    return self.respond({"error": "Período DJEN inválido: use de 1 a 365 dias."}, 400)
+                end = date.today()
+                start = end - timedelta(days=days - 1)
                 try:
-                    result = consult_djen(digits(number), days=30)
+                    result = consult_djen(digits(number), days=days)
                 except SourceError as error:
                     return self.respond({"error": str(error), "sourceStatus": error.status}, 503)
-                return self.respond({"contractVersion": CONTRACT_VERSION, **result})
+                return self.respond({"contractVersion": CONTRACT_VERSION, **result,
+                                     "days": days, "periodStart": start.isoformat(),
+                                     "periodEnd": end.isoformat()})
             if path == "/api/v1/jobs":
                 return self.respond(store.enqueue(body.get("ids", []), body.get("sources"),
                                                   oab=body.get("oab", False)))

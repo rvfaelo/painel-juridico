@@ -1,4 +1,4 @@
-/* Painel H.B v0.6.4 · bundle gerado por tools/build-app.mjs. Edite os módulos-fonte, não este arquivo. */
+/* Painel H.B v0.6.5 · bundle gerado por tools/build-app.mjs. Edite os módulos-fonte, não este arquivo. */
 (() => {
   // html-utils.js
   var escapeHTML = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -261,7 +261,12 @@
       return;
     };
     return {
-      "djen-search": async () => app.searchDjen(app.$("#entity-form"), app.apiPost, app.integrated && app.serviceOnline),
+      "djen-search": async () => app.searchDjen(
+        app.$("#entity-form"),
+        app.apiPost,
+        app.integrated && app.serviceOnline,
+        app.state.settings.djenDays
+      ),
       "datajud-search": async () => app.searchDatajud(app.$("#entity-form"), app.apiPost, app.integrated && app.serviceOnline),
       "datajud-apply": async () => app.applyDatajudSelection(app.$("#entity-form")),
       "refresh-publications": async () => app.refreshPublications(true),
@@ -1078,7 +1083,7 @@
   }
 
   // core.js
-  var VERSION = "0.6.4";
+  var VERSION = "0.6.5";
   function taskView(tasks2, query2 = "", filter2 = "open") {
     if (!["open", "done", "all"].includes(filter2)) throw Error("Filtro de tarefas inválido.");
     const fold2 = (v) => String(v ?? "").normalize("NFD").replace(new RegExp("\\p{M}", "gu"), "").toLocaleLowerCase("pt-BR");
@@ -2746,6 +2751,7 @@
 
   // changelog.js
   var CHANGELOG = Object.freeze([
+    { version: "0.6.5", date: "2026-11-07", title: "Busca rápida do DJEN com período configurado", summary: "A consulta rápida do DJEN passa a usar o período configurado, de 1 a 365 dias, e informa exatamente as datas consultadas.", changes: ["Envia o período configurado na busca rápida do DJEN, em vez de fixar 30 dias.", "Valida o período entre 1 e 365 dias no serviço e devolve as datas inicial e final.", "Mostra na mensagem o intervalo real consultado e mantém a ressalva de que ausência de publicação não prova inexistência do processo."] },
     { version: "0.6.4", date: "2026-11-07", title: "Autenticação local e qualidade operacional", summary: "Adiciona autenticação local com bootstrap de uso único, segredo administrativo, logs estruturados, acessibilidade, carga e auditoria bloqueante.", changes: ["Implementa bootstrap de uso único, cookie HttpOnly/SameSite=Strict e segredo administrativo restrito para sessão e shutdown.", "Atualiza updater e compatibilidade de parada com a versão anterior sem depender do CSRF de /session.", "Exige hashes na instalação opcional do e-SAJ e valida o lock no CI.", "Adiciona log estruturado rotativo e diagnóstico operacional sem CNJ, texto ou credenciais.", "Adiciona testes axe/WCAG em rotas e formulários e corrige contraste e rótulo acessível.", "Adiciona testes de carga para carteira, backup e Store; extrai views da ficha do processo.", "Torna npm audit e pip-audit bloqueantes e gera SBOM CycloneDX no CI."] },
     { version: "0.6.3", date: "2026-11-07", title: "Confiabilidade do scan e do pipeline", summary: "Protege o scan de movimentações com golden master, remove estilos inline do CSP e mede cobertura com testes de UI no CI.", changes: ["Adiciona harness de regressão do scan com fixtures DataJud/DJEN e comparação exata do golden master.", "Cobre parse DataJud, consulta DJEN e deduplicação no Store em testes Python.", "Remove os dois últimos estilos inline e passa style-src para self, sem unsafe-inline.", "Adiciona test:coverage com limites mínimos e job de UI/integração no CI."] },
     { version: "0.6.2", date: "2026-11-06", title: "Consolidação e qualidade do pacote", summary: "Remove Playwright do lock de release, centraliza a renovação de sessão, modulariza actions/views, divide validateBackup e adiciona lint, snapshots e CI.", changes: ["Remove Playwright também do package-lock do release e valida npm ci --dry-run no smoke.", "Centraliza a renovação de sessão para GET/HEAD com no máximo uma nova tentativa.", "Atualiza licenças dos conectores Python e remove código morto sem alterar o bundle.", "Separa handlers de action e views por domínio, com snapshots HTML byte a byte.", "Divide validateBackup em validadores com teste diferencial de mais de 500 mutações.", "Adiciona eslint/ruff, candidato de lock com hashes e workflow de CI com auditoria não bloqueante."] },
@@ -5411,7 +5417,7 @@
     if (status) status.textContent = "";
     if (results) results.innerHTML = "";
   }
-  async function searchDjen(form, apiPost2, available) {
+  async function searchDjen(form, apiPost2, available, days = 30) {
     const status = form.querySelector("#djen-lookup-status"), results = form.querySelector("#djen-lookup-results");
     const cnj = digits(form.elements.namedItem("cnj")?.value);
     if (!available) {
@@ -5422,6 +5428,7 @@
       status.textContent = "Informe um número CNJ válido para consultar o DJEN.";
       return;
     }
+    if (!Number.isInteger(days) || days < 1 || days > 365) days = 30;
     const token = {};
     form._djenRequest = token;
     const button2 = form.querySelector('[data-action="djen-search"]');
@@ -5429,10 +5436,11 @@
     status.textContent = "Consultando publicações no DJEN…";
     results.innerHTML = "";
     try {
-      const response = await apiPost2("djen/preview", { cnj });
+      const response = await apiPost2("djen/preview", { cnj, days });
       if (form._djenRequest !== token || digits(form.elements.namedItem("cnj").value) !== cnj) return;
       results.innerHTML = djenPreviewHTML(response.events);
-      status.textContent = response.status === "not_found" ? "Nenhuma publicação encontrada nos últimos 30 dias. Isso não significa que o processo não existe." : `${response.events.length} publicação(ões) encontrada(s) nos últimos 30 dias.${response.status === "partial" ? " Resultado parcial; confira a fonte." : ""}`;
+      const period = response.periodStart && response.periodEnd ? ` de ${safeDateLabel(response.periodStart)} a ${safeDateLabel(response.periodEnd)}` : ` nos últimos ${response.days || days} dias`;
+      status.textContent = response.status === "not_found" ? `Nenhuma publicação encontrada${period}. Isso não significa que o processo não existe.` : `${response.events.length} publicação(ões) encontrada(s)${period}.${response.status === "partial" ? " Resultado parcial; confira a fonte." : ""}`;
     } catch (error) {
       if (form._djenRequest === token) status.textContent = "Consulta DJEN não concluída: " + error.message;
     } finally {

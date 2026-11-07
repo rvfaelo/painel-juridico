@@ -27,7 +27,8 @@ export function createPublicationActions(app) {
   };
 
   return {
-    'djen-search': async () => app.searchDjen(app.$('#entity-form'), app.apiPost, app.integrated && app.serviceOnline),
+    'djen-search': async () => app.searchDjen(app.$('#entity-form'), app.apiPost,
+      app.integrated && app.serviceOnline, app.state.settings.djenDays),
     'datajud-search': async () => app.searchDatajud(app.$('#entity-form'), app.apiPost, app.integrated && app.serviceOnline),
     'datajud-apply': async () => app.applyDatajudSelection(app.$('#entity-form')),
     'refresh-publications': async () => app.refreshPublications(true),

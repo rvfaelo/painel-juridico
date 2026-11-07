@@ -573,7 +573,18 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         fetch.assert_called_once_with(cnj(), days=30)
         self.assertEqual(len(info["events"]), 1)
+        self.assertEqual(info["days"], 30)
+        self.assertRegex(info["periodStart"], r"^\d{4}-\d\d-\d\d$")
+        self.assertRegex(info["periodEnd"], r"^\d{4}-\d\d-\d\d$")
+        with patch("service.main.consult_djen", return_value={"status":"not_found", "events":[]}) as fetch:
+            status, info = self.req("POST", "/api/v1/djen/preview",
+                                    {"cnj":cnj(), "days":365}, headers)
+        self.assertEqual(status, 200)
+        fetch.assert_called_once_with(cnj(), days=365)
+        self.assertEqual(info["days"], 365)
         self.assertEqual(self.server.store.summary()["jobs"], [])
+        self.assertEqual(self.req("POST", "/api/v1/djen/preview",
+                                  {"cnj":cnj(), "days":366}, headers)[0], 400)
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

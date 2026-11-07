@@ -8,7 +8,7 @@ function form(){
 test('DJEN: consulta CNJ ainda não salvo e mostra prévia sem modificar o formulário',async()=>{
   const f=form();let args;
   await searchDjen(f,async(...a)=>{args=a;return {status:'success',events:[{occurredAt:'2026-11-05',text:'Intimação'}]};},true);
-  assert.deepEqual(args,['djen/preview',{cnj:'08129777920238190066'}]);
+  assert.deepEqual(args,['djen/preview',{cnj:'08129777920238190066',days:30}]);
   assert.match(f.results.innerHTML,/Intimação/);assert.equal(f.cnj.value,'0812977-79.2023.8.19.0066');assert.equal(f.button.disabled,false);
 });
 test('DJEN: resposta antiga não aparece após troca de CNJ',async()=>{
@@ -20,6 +20,14 @@ test('DJEN: resposta antiga não aparece após troca de CNJ',async()=>{
 test('DJEN: falha e resultado vazio são distintos',async()=>{
   const f=form();await searchDjen(f,async()=>{throw Error('HTTP 429');},true);assert.match(f.status.textContent,/não concluída: HTTP 429/);
   await searchDjen(f,async()=>({status:'not_found',events:[]}),true);assert.match(f.status.textContent,/Nenhuma publicação/);
+});
+test('DJEN: usa período configurado e mostra as datas consultadas',async()=>{
+  const f=form();let args;
+  await searchDjen(f,async(...a)=>{args=a;return {status:'not_found',events:[],days:365,
+    periodStart:'2025-11-08',periodEnd:'2026-11-07'};},true,365);
+  assert.deepEqual(args,['djen/preview',{cnj:'08129777920238190066',days:365}]);
+  assert.match(f.status.textContent,/08\/11\/2025 a 07\/11\/2026/);
+  assert.match(f.status.textContent,/Nenhuma publicação/);
 });
 test('DJEN: conteúdo externo e links inseguros não são executados',()=>{
   const html=djenPreviewHTML([{text:'<script>alert(1)</script>',url:'javascript:alert(1)',occurredAt:'2026-11-05'}]);
