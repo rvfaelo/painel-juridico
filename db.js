@@ -64,10 +64,6 @@ export async function mutate(fn) {
     tx.oncomplete=()=>resolve(output);tx.onabort=()=>reject(error||tx.error||Error('Não foi possível salvar.'));tx.onerror=()=>reject(error||tx.error);
   });
 }
-export async function replaceState(newState) {
-  if(newState.documents?.length)throw Error('Restaure anexos pelo fluxo completo de backup.');
-  return mutate(state=>{for(const key of Object.keys(state))delete state[key];Object.assign(state,newState);});
-}
 export async function addDocument(caseId,file) {
   const bytes=new Uint8Array(await file.arrayBuffer());validateDocument(bytes,file.type);
   const hash=await sha256(bytes),metadata={id:uid(),caseId,name:String(file.name||'Documento').slice(0,200),mime:file.type,size:bytes.length,sha256:hash,createdAt:now()};

@@ -11,15 +11,11 @@ const adapters = {
   djen: (job, settings) => djen(job, settings, transport)
 };
 
-const DATAJUD = 'datajud';
-const DJEN = 'djen';
 const MAX_STEPS = 40;
 const AUTO_DEFAULT_TIMES = '08:00,18:00';
-const AUTO_TICK_MS = 60_000;
 
 let pumping = false;
 let scheduled = null;
-let autoTimer = null;
 
 async function withQueueLock(fn) {
   if (navigator.locks?.request) {
@@ -74,10 +70,6 @@ async function drain() {
 
 export async function pump() {
   return withQueueLock(drain);
-}
-
-export function isPumping() {
-  return pumping;
 }
 
 // Espelha os comandos que antes eram enviados por chrome.runtime.sendMessage.
@@ -210,59 +202,4 @@ export function autoScheduleInfo(settings = {}, clock = new Date()) {
   };
 }
 
-async function runAuto(force = false) {
-  if (!force && navigator.onLine === false) return null;
-  const state = await readState();
-  const config = autoConfig(state.settings);
-  if (!config.enabled && !force) return null;
-  const due = latestDue(config.times, saoPauloNow());
-  if (!force && config.last >= due) return null;
 
-  const result = await mutate(current => {
-    const live = autoConfig(current.settings);
-    if (!live.enabled && !force) return null;
-    const check = latestDue(live.times, saoPauloNow());
-    if (!force && live.last >= check) return null;
-    if (!force) current.settings.autoUpdateLast = check;
-
-    const ids = current.cases.filter(item => !item.archived && item.cnj).map(item => item.id);
-    let count = 0;
-    if (ids.length && (current.settings[DATAJUD] || current.settings[DJEN])) {
-      count += enqueue(current, ids);
-    }
-    if (current.settings[DJEN] && /^\d{1,8}[A-Za-z]?$/.test(current.settings.oab || '') && /^[A-Z]{2}$/.test(current.settings.ufOab || '')) {
-      // OAB já em consulta não é duplicada; falhas de configuração não podem
-      // impedir a atualização dos processos.
-      try { count += enqueueOab(current); } catch {}
-    }
-    return {count, due: force ? '' : check};
-  });
-
-  if (result?.count) void pump();
-  return result;
-}
-
-export async function runAutoNow() {
-  return runAuto(true);
-}
-
-export function startScheduler(onRun) {
-  stopScheduler();
-  const tick = () => {
-    runAuto()
-      .then(result => { if (result?.count) onRun?.(result); })
-      .catch(error => console.error('Pauta: falha na atualização automática.', error));
-  };
-  // Primeira verificação após a interface carregar; depois, a cada minuto.
-  setTimeout(tick, 5_000);
-  autoTimer = setInterval(tick, AUTO_TICK_MS);
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) tick();
-  });
-  window.addEventListener('online', tick);
-}
-
-export function stopScheduler() {
-  if (autoTimer) clearInterval(autoTimer);
-  autoTimer = null;
-}
