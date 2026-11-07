@@ -154,7 +154,7 @@ with ZipFile(ARCHIVE) as archive:
             or 'node_modules/playwright-core' in lock_packages):
         raise RuntimeError('Dependencia de testes Playwright no package-lock do ZIP')
     forbidden = ('node_modules/', '.venv/', 'audit-context/', 'arquivo/', 'tests/',
-                 'data/', '__pycache__/', 'docs/ui-test/', '.public-datajud-key.txt')
+                 'data/', '__pycache__/', 'docs/ui-test/', '.github/', '.public-datajud-key.txt')
     if any(any(part in m for part in forbidden)
            or m.lower().endswith(('.sqlite3', '.db', '.pem', '.key', '.env', '.zip'))
            for m in members):
