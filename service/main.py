@@ -5,9 +5,10 @@ Nunca servir a rede, aceitar Origin:null ou caminhos locais arbitrarios.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -15,6 +16,7 @@ import argparse
 import importlib.util
 import hashlib
 import json
+import logging
 import os
 import secrets
 import socket
@@ -45,6 +47,40 @@ AUTH_REQUIRED_HTML = """<!doctype html>
 <p>Abra o painel pelo atalho <strong>ABRIR-PAINEL-INTEGRADO.cmd</strong> ou pela Central.</p>
 <p class="muted">O link de acesso expirou ou esta aba foi aberta sem a sessão local. Feche esta aba e abra novamente pelo iniciador.</p>
 </main></body></html>"""
+
+
+class JsonFormatter(logging.Formatter):
+    """Log local e estruturado, sem URL, CNJ, token ou conteúdo processual."""
+    def format(self, record):
+        payload = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "level": record.levelname,
+            "event": getattr(record, "event", record.getMessage()),
+        }
+        for field in ("method", "status", "duration_ms", "port", "version", "worker"):
+            value = getattr(record, field, None)
+            if value is not None:
+                payload[field] = value
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def configure_logging(directory):
+    logger = logging.getLogger("pauta")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    for handler in list(logger.handlers):
+        logger.removeHandler(handler)
+        handler.close()
+    path = Path(directory) / "logs" / "painel-hb.log"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handler = RotatingFileHandler(path, maxBytes=2 * 1024 * 1024,
+                                      backupCount=3, encoding="utf-8")
+        handler.setFormatter(JsonFormatter())
+        logger.addHandler(handler)
+    except OSError:
+        logger.addHandler(logging.NullHandler())
+    return logger
 
 
 def admin_secret_path(directory=None):
@@ -141,6 +177,8 @@ class Worker(threading.Thread):
             except Exception:
                 # Nao registrar tokens, conteudos de processo ou tracebacks em logs.
                 self.last_error = "O ciclo de monitoramento falhou. Confira a integridade do banco e reinicie o serviço."
+                logging.getLogger("pauta").warning("worker_error", extra={
+                    "event": "worker_error", "worker": self.name})
             self.stop_event.wait(3.0)
 
 
@@ -152,6 +190,14 @@ class Server(ThreadingHTTPServer):
         if os.name == "nt":
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
         super().server_bind()
+
+    def server_close(self):
+        logger = getattr(self, "logger", None)
+        if logger:
+            for handler in list(logger.handlers):
+                logger.removeHandler(handler)
+                handler.close()
+        super().server_close()
 
     def __init__(self, port, store=None, auth=True):
         super().__init__((HOST, port), Handler)
@@ -170,6 +216,7 @@ class Server(ThreadingHTTPServer):
         self.sessions_lock = threading.Lock()
         self.bootstrap_tokens = {}
         self.admin_secret = load_or_create_admin_secret(self.store.directory) if self.auth_required else ""
+        self.logger = configure_logging(self.store.directory)
         self.worker = Worker(self.store, sources=("datajud", "esaj_pg", "esaj_sg"))
         self.djen_worker = Worker(self.store, sources=("djen",), schedule=False)
 
@@ -223,6 +270,23 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         # Nao escrever URLs, dados processuais ou segredos em historico de console.
         pass
+
+    def send_response(self, code, message=None):
+        self._response_code = code
+        super().send_response(code, message)
+
+    def handle_one_request(self):
+        self._response_code = None
+        started = time.monotonic()
+        try:
+            super().handle_one_request()
+        finally:
+            logger = getattr(self.server, "logger", None)
+            if logger and self.command and self._response_code:
+                logger.info("http_request", extra={
+                    "event": "http_request", "method": self.command,
+                    "status": self._response_code,
+                    "duration_ms": round((time.monotonic() - started) * 1000, 1)})
 
     def respond(self, obj, code=200):
         blob = json.dumps(obj, ensure_ascii=False, separators=(",", ":"), default=str).encode("utf-8")
@@ -371,14 +435,20 @@ class Handler(BaseHTTPRequestHandler):
                                      "settings": {**s, "datajudKey": ""}, "worker": self.server.worker.is_alive(),
                                      "workerError": self.server.worker.last_error,
                                      "djenWorker": self.server.djen_worker.is_alive(),
-                                     "djenWorkerError": self.server.djen_worker.last_error})
+                                     "djenWorkerError": self.server.djen_worker.last_error,
+                                     "operational": self.server.store.operational_status()})
+            if path == "/api/v1/diagnostics/operational":
+                return self.respond({"contractVersion": CONTRACT_VERSION, "appVersion": APP_VERSION,
+                                     "worker": self.server.worker.is_alive(),
+                                     "djenWorker": self.server.djen_worker.is_alive(),
+                                     "operational": self.server.store.operational_status()})
             if path == "/api/v1/connectors":
                 installed = importlib.util.find_spec("juscraper") is not None
                 return self.respond({"contractVersion": CONTRACT_VERSION,
                                      "sources": capabilities(installed)})
             if (path in ("/api/v1/workspace", "/api/v1/workspace/export", "/api/v1/cases",
                          "/api/v1/dashboard", "/api/v1/publications", "/api/v1/notifications",
-                         "/api/v1/backup")
+                         "/api/v1/backup", "/api/v1/diagnostics/operational")
                     or path.startswith("/api/v1/processes/")
                     or (path.startswith("/api/v1/publications/") and path.endswith("/certidao"))):
                 # Dados locais exigem a sessão também para leitura, inclusive
@@ -668,6 +738,8 @@ def main(argv=None):
             print(f"A porta {args.port} esta ocupada por outro programa. Configure PAUTA_PORT explicitamente.")
             return 2
     print(f"Painel H.B local iniciado em {server.origin}/ — dados em {server.store.directory}", flush=True)
+    server.logger.info("service_started", extra={
+        "event": "service_started", "port": args.port, "version": APP_VERSION})
     if os.getenv('HB_UPDATE_VALIDATION') != '1':
         server.worker.start()
         server.djen_worker.start()
@@ -680,6 +752,7 @@ def main(argv=None):
     finally:
         server.worker.stop_event.set()
         server.djen_worker.stop_event.set()
+        server.logger.info("service_stopped", extra={"event": "service_stopped"})
         server.server_close()
     return 0
 

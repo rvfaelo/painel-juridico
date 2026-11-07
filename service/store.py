@@ -9,6 +9,7 @@ import math
 import os
 import re
 import secrets
+import shutil
 import sqlite3
 import threading
 import time
@@ -457,6 +458,31 @@ class Store:
                 ORDER BY first_seen DESC,id DESC LIMIT 8""")]
         return {"jobs": jobs, "counts": counts, "unseen": unseen,
                 "recentUnseen": recent_unseen}
+
+    def operational_status(self):
+        """Sinais de operação sem títulos, textos, CNJ ou credenciais."""
+        with self.lock, self.connection() as db:
+            schema_row = db.execute("SELECT v FROM meta WHERE k='schema'").fetchone()
+            schema = int(schema_row[0]) if schema_row else 0
+            jobs = {row["status"]: row["count"] for row in db.execute(
+                "SELECT status,COUNT(*) count FROM jobs GROUP BY status")}
+            tables = {}
+            for table in ("cases", "events", "tramitations", "jobs", "consultations",
+                          "corrections", "baselines"):
+                tables[table] = db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            row = db.execute("SELECT attempted_at,status FROM consultations ORDER BY attempted_at DESC LIMIT 1").fetchone()
+            last_consultation = dict(row) if row else None
+        database = self.directory / "pauta-monitoramento.sqlite3"
+        wal = self.directory / "pauta-monitoramento.sqlite3-wal"
+        try:
+            disk = shutil.disk_usage(self.directory)
+            free_bytes = disk.free
+        except OSError:
+            free_bytes = None
+        return {"schema": schema, "databaseBytes": database.stat().st_size if database.exists() else 0,
+                "walBytes": wal.stat().st_size if wal.exists() else 0,
+                "tables": tables, "jobs": jobs, "lastConsultation": last_consultation,
+                "diskFreeBytes": free_bytes, "generatedAt": now_utc()}
 
     def case_detail(self, case_id):
         with self.lock, self.connection() as db:
