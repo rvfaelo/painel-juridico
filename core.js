@@ -1,5 +1,5 @@
 import {validStoredDate} from './safe-dates.js';
-export const VERSION = '0.6.0';
+export const VERSION = '0.6.1';
 export function taskView(tasks,query='',filter='open'){
   if(!['open','done','all'].includes(filter))throw Error('Filtro de tarefas inválido.');
   const fold=v=>String(v??'').normalize('NFD').replace(/\p{M}/gu,'').toLocaleLowerCase('pt-BR');
