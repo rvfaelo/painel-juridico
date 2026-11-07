@@ -44,6 +44,7 @@ jobs:
       - run: npx playwright install chromium
       - run: pip install -r requirements.txt
       - run: npm run test:ui
+      - run: npm run test:accessibility
       - run: npm run test:integrated
 
   audit:

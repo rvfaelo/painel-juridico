@@ -84,8 +84,10 @@ with TemporaryDirectory(prefix='painel-hb-release-') as temp:
     assert release_lock['version'] == version
     assert release_lock['packages']['']['version'] == version
     assert 'playwright' not in release_lock['packages'][''].get('devDependencies', {})
+    assert 'axe-core' not in release_lock['packages'][''].get('devDependencies', {})
     assert 'node_modules/playwright' not in release_lock['packages']
     assert 'node_modules/playwright-core' not in release_lock['packages']
+    assert 'node_modules/axe-core' not in release_lock['packages']
 
     npm = shutil.which('npm')
     npm_ci = False

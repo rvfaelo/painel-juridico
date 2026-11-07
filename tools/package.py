@@ -51,7 +51,8 @@ files = release_files(ROOT)
 # Remove apenas esses atalhos do package.json distribuido, preservando o
 # repositorio completo (com testes) intacto.
 RELEASE_SCRIPTS = ('test', 'test:cnj', 'test:djen', 'test:coverage', 'test:ui',
-                   'test:integrated', 'probe', 'probe:live')
+                   'test:integrated', 'test:accessibility', 'probe', 'probe:live')
+TEST_DEV_DEPENDENCIES = ('playwright', 'axe-core')
 
 
 def release_bytes(path, relative):
@@ -60,13 +61,15 @@ def release_bytes(path, relative):
         data = json.loads(content.decode('utf-8'))
         for name in RELEASE_SCRIPTS:
             data.get('scripts', {}).pop(name, None)
-        data.get('devDependencies', {}).pop('playwright', None)
+        for name in TEST_DEV_DEPENDENCIES:
+            data.get('devDependencies', {}).pop(name, None)
         content = (json.dumps(data, ensure_ascii=False, indent=2) + '\n').encode('utf-8')
     elif relative == 'package-lock.json':
         data = json.loads(content.decode('utf-8'))
         packages = data.get('packages', {})
-        packages.get('', {}).get('devDependencies', {}).pop('playwright', None)
-        for name in ('node_modules/playwright', 'node_modules/playwright-core'):
+        for name in TEST_DEV_DEPENDENCIES:
+            packages.get('', {}).get('devDependencies', {}).pop(name, None)
+        for name in ('node_modules/playwright', 'node_modules/playwright-core', 'node_modules/axe-core'):
             packages.pop(name, None)
 
         def referenced(name):
@@ -142,17 +145,18 @@ with ZipFile(ARCHIVE) as archive:
     release_package = json.loads(archive.read(PREFIX + 'package.json'))
     if any(name in release_package.get('scripts', {}) for name in RELEASE_SCRIPTS):
         raise RuntimeError('Script de teste/utilitario ausente do repositorio no ZIP')
-    if 'playwright' in release_package.get('devDependencies', {}):
-        raise RuntimeError('Dependencia de testes Playwright no ZIP')
+    if any(name in release_package.get('devDependencies', {}) for name in TEST_DEV_DEPENDENCIES):
+        raise RuntimeError('Dependencia de testes Playwright/axe no ZIP')
     release_lock = json.loads(archive.read(PREFIX + 'package-lock.json'))
     lock_packages = release_lock.get('packages', {})
     if (release_lock.get('version') != VERSION
             or lock_packages.get('', {}).get('version') != VERSION):
         raise RuntimeError('Versao do package-lock no ZIP diverge de package.json')
-    if ('playwright' in lock_packages.get('', {}).get('devDependencies', {})
+    if (any(name in lock_packages.get('', {}).get('devDependencies', {}) for name in TEST_DEV_DEPENDENCIES)
             or 'node_modules/playwright' in lock_packages
-            or 'node_modules/playwright-core' in lock_packages):
-        raise RuntimeError('Dependencia de testes Playwright no package-lock do ZIP')
+            or 'node_modules/playwright-core' in lock_packages
+            or 'node_modules/axe-core' in lock_packages):
+        raise RuntimeError('Dependencia de testes Playwright/axe no package-lock do ZIP')
     forbidden = ('node_modules/', '.venv/', 'audit-context/', 'arquivo/', 'tests/',
                  'data/', '__pycache__/', 'docs/ui-test/', '.github/', '.public-datajud-key.txt')
     if any(any(part in m for part in forbidden)
