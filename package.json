@@ -1,6 +1,6 @@
 {
   "name": "painel-juridico-local",
-  "version": "0.6.9",
+  "version": "0.6.10",
   "private": true,
   "type": "module",
   "engines": {
@@ -8,9 +8,9 @@
   },
   "devDependencies": {
     "axe-core": "4.14.0",
-    "esbuild": "0.25.12",
+    "esbuild": "0.28.2",
     "fflate": "0.8.3",
-    "playwright": "1.58.0"
+    "playwright": "1.64.1"
   },
   "scripts": {
     "build": "node tools/build-app.mjs",

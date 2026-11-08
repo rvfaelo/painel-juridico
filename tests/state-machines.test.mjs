@@ -85,6 +85,18 @@ test('ciclo do processo valida etapa, arquivamento e valores derivados',()=>{
   assert.throws(()=>updateCaseWorkflow(s,saved.id,{nextStep:'',workOwner:'me',workStatus:'todo',review:''}),/Desarquive/);
 });
 
+test('processo arquivado não aceita mudança de acompanhamento pelo saveEntity',()=>{
+  const s=emptyState();
+  const c=saveEntity(s,'cases',{title:'Caso arquivado',nextStep:'Aguardar',workOwner:'me',workStatus:'todo',review:'2026-11-10'});
+  c.archived=true;
+  const renamed=saveEntity(s,'cases',{...c,title:'Caso renomeado'});
+  assert.equal(renamed.title,'Caso renomeado');
+  assert.throws(()=>saveEntity(s,'cases',{...c,nextStep:'Outro passo'}),/Desarquive/);
+  assert.throws(()=>saveEntity(s,'cases',{...c,workOwner:'client'}),/Desarquive/);
+  assert.throws(()=>saveEntity(s,'cases',{...c,workStatus:'doing'}),/Desarquive/);
+  assert.throws(()=>saveEntity(s,'cases',{...c,review:'2026-11-11'}),/Desarquive/);
+});
+
 test('concluir tarefa guarda a etapa anterior e reabrir restaura',()=>{
   const task={id:'task1',title:'Petição',stage:'doing'};
   toggleTaskDone(task);

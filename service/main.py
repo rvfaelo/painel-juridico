@@ -33,7 +33,7 @@ from .workspace import Workspace, WorkspaceConflict
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8766
-APP_VERSION = "0.6.9"
+APP_VERSION = "0.6.10"
 ROOT = Path(__file__).resolve().parent.parent
 SESSION_COOKIE = "pauta_session"
 SESSION_TTL = 12 * 60 * 60
