@@ -26,10 +26,11 @@ SOFTWARE.
 
 O build do arquivo é reproduzível via `node tools/build-zip.mjs`, usando as dependências de desenvolvimento `fflate` e `esbuild`. Essas dependências não precisam estar instaladas para abrir o painel HTML já compilado.
 
-## Conectores Python na versão 0.6.1
+## Conectores Python na versão 0.6.11
 
 - `juscraper==0.5.0`: dependência **opcional**, obtida via PyPI, licença MIT; consulte o pacote instalado para seu texto completo de licença e as licenças transitivas. Não distribuímos seu código-fonte modificado.
 - `mcp-juridico-brasil` 0.1.0 (DeHor-Labs): dependência instalada pelo `requirements.txt` a partir do commit fixado `4dd19d146b2a3efe6fd3d0c7fcd2ceaefe40cfc1`, licença MIT. É usada em `service/datajud_mcp.py` como transporte do cliente DataJud; nenhum código-fonte do projeto upstream é copiado para este repositório. Consulte o pacote instalado para o texto completo da licença e das dependências transitivas.
+- `tzdata==2026.6`: dependência obrigatória, obtida via PyPI, licença Apache-2.0; fornece o banco IANA de fusos horários no Windows, usado para `America/Sao_Paulo`. Nenhum código-fonte do projeto upstream é copiado para este repositório.
 - API Pública DataJud e Comunica/DJEN: serviços públicos externos, sujeitos a termos, limites e políticas próprias; **não** são bibliotecas incorporadas ao pacote.
 
 As dependências Node utilizadas no desenvolvimento estão fixadas no `package-lock.json`. Não instale código diretamente da branch `main` de nenhum repositório. Propostas de atualização podem ser revisadas manualmente; não há execução automática de código por mudanças no GitHub.

@@ -1,4 +1,4 @@
-# Painel H.B — Painel Jurídico Local 0.6.10
+# Painel H.B — Painel Jurídico Local 0.6.11
 
 **Planilha do escritório com Tribunal, Processo, Autor, Réu, Ação, Audiência e Hora:**
 o importador reconhece essas sete colunas automaticamente, preserva as partes
@@ -17,6 +17,14 @@ estão as opções de abrir o painel, preparar as dependências (inclusive offli
 instalar o e-SAJ, verificar/parar o serviço e controlar a inicialização automática.
 O Windows PowerShell 5.1 já vem com o Windows 10/11; a central não exige Node.js.
 Os antigos CMD continuam funcionando para uso avançado.
+
+Para **instalar em outro computador sem administrador**, use o instalador por
+usuário `Instalar-Painel-HB-0.6.11.exe` (pasta `dist` ou anexo da versão). Ele
+cria atalhos no desktop e no menu Iniciar, reaproveita o Python 3.12 x64 já
+instalado (ou instala um cópia privada) e não pede senha de administrador. Como
+não tem assinatura digital, o Windows pode exibir "O Windows protegeu o seu PC":
+clique em **Mais informações → Executar assim mesmo**. O passo a passo está em
+`docs/INSTALADOR-WINDOWS.md`.
 
 1. Para **instalação offline em outro PC**, extraia o ZIP principal e o ZIP
    `Painel-HB-Dependencias-Offline-Win64-Python312.zip` na mesma pasta,
@@ -250,6 +258,40 @@ Dependências Node têm versões fixadas em `package-lock.json`.
 entrar no Windows; **não é instalado automaticamente**. Para desfazer,
 `REMOVER-INICIALIZACAO.cmd`. A porta é fixa por padrão; configure
 `PAUTA_PORT` explicitamente se houver conflito.
+
+## Verificação periódica de processos
+
+`tools/verificar_processos.py` lê os processos com CNJ do painel, enfileira as
+consultas no serviço local e relata novidades, falhas, ressalvas e processos não
+localizados. Ele **não altera cadastros, notificações vistas nem planilha**:
+apenas enfileira consultas e lê o resultado. A primeira consulta de cada
+processo/fonte vira referência inicial.
+
+```powershell
+.venv\Scripts\python.exe tools\verificar_processos.py
+```
+
+O serviço precisa estar em execução (`CENTRAL-PAINEL-HB.cmd`). Opções:
+`--fontes djen` (consulta mais rápida), `--sem-consultar` (lê só o que já está
+no serviço), `--json` (para rotinas) e `--strict` (retorna erro quando houver
+falha). Se o serviço estiver parado, o script avisa em vez de concluir que não
+há novidades.
+
+## Dependências e créditos
+
+- `mcp-juridico-brasil` (DeHor-Labs, MIT, commit fixado): transporte do cliente
+  DataJud em `service/datajud_mcp.py`; nenhum código do projeto é copiado.
+- `tzdata` (Apache-2.0, fixado): banco de fusos horários no Windows, necessário
+  para `America/Sao_Paulo`.
+- `juscraper` (MIT, opcional): conector e-SAJ do TJSP, instalado só por
+  `INSTALAR-ESAJ-OPCIONAL.cmd`.
+- `fflate` (MIT): leitura local de planilhas XLSX, embutido em `zip-inflate.js`.
+- API Pública DataJud e Comunica/DJEN: serviços públicos externos, sujeitos a
+  termos e limites próprios; não são bibliotecas incorporadas.
+
+O texto das licenças está em `THIRD-PARTY-LICENSES.md`, a lista completa de
+componentes em `sbom.cdx.json` e as versões fixadas em `requirements.txt`,
+`requirements-esaj.txt` e `package-lock.json`.
 
 ## Testes
 

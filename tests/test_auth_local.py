@@ -5,12 +5,19 @@ import json
 import tempfile
 import threading
 import unittest
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from unittest.mock import patch
 
 from service.main import Server, request_status
 from service.store import Store
+
+
+def package_version():
+    """Versão publicada em package.json, para não fixar o número no teste."""
+    data = Path(__file__).resolve().parents[1] / "package.json"
+    return json.loads(data.read_text(encoding="utf-8"))["version"]
 
 
 class LocalAuthTests(unittest.TestCase):
@@ -105,7 +112,7 @@ class LocalAuthTests(unittest.TestCase):
         self.assertEqual(status, 401)
         status, _, body = self.request("GET", "/api/v1/status", headers=self.admin_headers())
         self.assertEqual(status, 200)
-        self.assertEqual(json.loads(body)["appVersion"], "0.6.10")
+        self.assertEqual(json.loads(body)["appVersion"], package_version())
         status, _, body = self.request("POST", "/api/v1/shutdown", {}, self.admin_headers())
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(body)["status"], "stopping")

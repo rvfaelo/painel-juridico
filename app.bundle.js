@@ -1,4 +1,4 @@
-/* Painel H.B v0.6.10 · bundle gerado por tools/build-app.mjs. Edite os módulos-fonte, não este arquivo. */
+/* Painel H.B v0.6.11 · bundle gerado por tools/build-app.mjs. Edite os módulos-fonte, não este arquivo. */
 (() => {
   // html-utils.js
   var escapeHTML = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -1200,7 +1200,7 @@
   }
 
   // core.js
-  var VERSION = "0.6.10";
+  var VERSION = "0.6.11";
   function taskView(tasks2, query2 = "", filter2 = "open") {
     if (!["open", "done", "all"].includes(filter2)) throw Error("Filtro de tarefas inválido.");
     const fold2 = (v) => String(v ?? "").normalize("NFD").replace(new RegExp("\\p{M}", "gu"), "").toLocaleLowerCase("pt-BR");
@@ -2863,6 +2863,7 @@
 
   // changelog.js
   var CHANGELOG = Object.freeze([
+    { version: "0.6.11", date: "2026-11-15", title: "Dependências atualizadas e documentação alinhada", summary: "Atualiza o Playwright de desenvolvimento para 1.65.1, corrige a versão nos documentos e passa a listar as dependências, os créditos e o verificador de processos no LEIA-ME.", changes: ["Atualiza o Playwright de desenvolvimento de 1.64.1 para 1.65.1, sem alterar o pacote distribuído nem o modo file://.", "Alinha o cabeçalho do LEIA-ME e das licenças de terceiros à versão publicada e acrescenta tzdata e juscraper à lista de dependências.", "Documenta o verificador de processos (tools/verificar_processos.py) e o instalador por usuário no LEIA-ME."] },
     { version: "0.6.10", date: "2026-11-07", title: "Arquivamento protege o acompanhamento", summary: "A edição de um processo arquivado deixa de alterar próximo passo, responsável, situação e data de revisão, alinhando o formulário à trava já aplicada na ficha.", changes: ["Bloqueia no núcleo alterações de próximo passo, responsável, situação e revisão em processos arquivados, mesmo pela edição do cadastro.", "Mantém a correção de título, CNJ e demais dados cadastrais, além do desarquivamento, sem exigir reabrir o processo.", "Adiciona teste de contrato para o bloqueio e preserva o comportamento dos processos ativos."] },
     { version: "0.6.9", date: "2026-11-07", title: "Últimas consultas no modo integrado", summary: "A lista de processos passa a mostrar o resultado das consultas gravadas no serviço local, em vez de exibir sempre “Ainda não consultado”.", changes: ["Usa o histórico de consultas do serviço para preencher a coluna Últimas consultas.", "Evita a seção local vazia de consultas quando o acompanhamento integrado está conectado.", "Mantém o comportamento do modo file:// baseado nos jobs locais."] },
     { version: "0.6.8", date: "2026-11-07", title: "Máquinas de estado explícitas", summary: "Extrai a fila de consultas, o ciclo dos processos, as tarefas, as pendências e os eventos para transições declaradas, com testes de contrato e restauração de backup compatível com os estados do serviço local.", changes: ["Centraliza estados e transições em state-machines.js, reexportado pelo núcleo sem alterar a interface existente.", "Reabrir uma tarefa concluída restaura a etapa anterior em vez de voltar sempre para A fazer.", "Aceita no backup os estados parciais do serviço local, como resultado parcial e autenticação necessária.", "Adiciona testes de contrato para transições válidas, estados terminais e invariantes de pendências e eventos."] },
