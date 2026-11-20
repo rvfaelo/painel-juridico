@@ -7,7 +7,7 @@
     "node": ">=24"
   },
   "devDependencies": {
-    "axe-core": "4.14.0",
+    "axe-core": "4.14.1",
     "esbuild": "0.28.2",
     "fflate": "0.8.3",
     "playwright": "1.65.1"
